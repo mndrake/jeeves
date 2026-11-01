@@ -38,3 +38,30 @@ Append-only. Each entry: date, decision, alternatives considered, evidence.
 - FluidAudio: Parakeet TDT 0.6B v3 (batch) and Parakeet EOU 120M (streaming), CoreML, macOS 14+.
 
 Pending: PLAN section 9 (six low-stakes defaults). Shoot-out results from M0-M4 will be appended here.
+
+## 2026-11-01 - M0 started
+
+- **macOS 27 is current.** It shipped in September 2026 with Xcode 27 and Swift 6.4. The
+  deployment target stays macOS 26.0 so the app runs on Tahoe too; development uses
+  Xcode 27. Source for the release: a third-party write-up plus Apple's Xcode
+  requirements page; confirm on the Mac.
+- **Swift package + XcodeGen.** Modules live in a SwiftPM package that also builds on
+  Linux, so the client, index and tests run in CI without a Mac. The app target is
+  generated from `App/project.yml`; the `.xcodeproj` is not committed.
+- **SQLite is vendored** (3.54.1 amalgamation + sqlite-vec v0.1.9, statically compiled).
+  macOS's system SQLite cannot load extensions, and vendoring pins FTS5 behaviour.
+  Pinned to sqlite-vec's latest stable tag, not the 0.1.10 alpha on main.
+- **Claude client is hand-written over HTTP.** There is no official Anthropic Swift SDK.
+  Streaming uses a `URLSessionDataDelegate` so SSE event boundaries survive and the same
+  code runs on Linux.
+- **Refusal fallback on by default** for Sonnet 5.5 and Opus 5.5 (`fallbacks: "default"`,
+  beta `server-side-fallback-2026-07-01`). Omitted for Haiku 5.5, which has no
+  server-side fallback. The stream decoder records `fallback` blocks and discards
+  partial text on `stop_reason: "refusal"`.
+- **Speech input conversion** uses `AVAudioConverter` directly, because
+  `AnalyzerInputConverter` is macOS 27-only.
+- **Tap strategy is an open M0 question.** Three are implemented: `bundleIDs` (macOS 26
+  `CATapDescription.bundleIDs` with process restore), per-process taps of the browser's
+  helper processes, and a system-wide tap excluding Jeeves.
+- **Linux container numbers** are in `docs/M0.md`: hybrid search at 10k chunks is
+  17 ms p50 and 29 ms p95, well inside the 100 ms retrieval budget.

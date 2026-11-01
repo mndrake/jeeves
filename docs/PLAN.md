@@ -31,8 +31,8 @@ screen before it starts.
 | Item | Target | Notes |
 |---|---|---|
 | Hardware | 2026 MacBook Air, Apple M5, **16 GB** unified memory | Fanless; sustained load throttles. No local LLM, so memory is comfortable |
-| OS | macOS 26 Tahoe (minimum deployment 26.0) | Core Audio process taps, `SpeechAnalyzer`, Foundation Models framework |
-| Toolchain | Xcode 26, Swift 6, SwiftUI, Swift concurrency | Single process; no Python at runtime |
+| OS | Minimum macOS 26 Tahoe (deployment target 26.0); primary target macOS 27, current since September 2026 | Core Audio process taps, `SpeechAnalyzer`, Foundation Models framework. Avoid macOS 27-only APIs (for example `AnalyzerInputConverter`) unless the minimum moves |
+| Toolchain | Xcode 27, Swift 6.4, SwiftUI, Swift concurrency; app project generated with XcodeGen | Single process; no Python at runtime. Xcode 27 needs macOS 26.6+ |
 | Call apps | Google Meet and Zoom **in the browser** (Chrome, Safari) | Native Zoom/Teams are out of scope for v1 but the tap code is app-agnostic |
 | LLM | Anthropic API (Claude Haiku 5.5 / Sonnet 5.5 / Opus 5.5), picked per task | See D4. Requires a Console API key |
 
@@ -118,7 +118,7 @@ Interview: the AI model is not local; use Claude with Haiku/Sonnet/Opus chosen p
 
 | Task | Model | Settings | Why |
 |---|---|---|---|
-| Live answer (default) | **Claude Sonnet 5.5** `claude-sonnet-5-5` | streaming; `thinking: {type: "between_tools"}` (thinking off for this call); `output_config.effort: "low"`; `max_tokens` ~300 | Best speed/quality for grounded synthesis; time-to-first-token is what matters |
+| Live answer (default) | **Claude Sonnet 5.5** `claude-sonnet-5-5` | streaming; `thinking: {type: "between_tools"}` (thinking off for this call); `output_config.effort: "low"`; `max_tokens` ~300. M0 measures this against adaptive thinking at low effort, which the API guide prefers | Best speed/quality for grounded synthesis; time-to-first-token is what matters |
 | Live answer, "fast" mode | Claude Haiku 5.5 `claude-haiku-5-5` | streaming; `thinking: {type: "disabled"}`; effort `low` | Lowest latency and cost; good enough when passages already carry the answer |
 | "Deeper" answer (hotkey / follow-up) | Claude Opus 5.5 `claude-opus-5-5` | streaming; effort `low` or `medium` (thinking cannot be disabled on Opus 5.5) | Hard multi-document questions, worth 2-4 s |
 | Ingest-time contextualization and synthetic questions | Claude Haiku 5.5 via Message Batches | non-streaming, effort `low`, 1-hour prompt cache on the full document | Thousands of chunks, half price, no latency constraint |
@@ -182,7 +182,7 @@ Network: one streaming request per question; nothing else during a call.
 Each milestone ends with something you can run on the Air during a real call.
 Estimates assume one developer, mostly full time.
 
-### M0 - Spike and skeleton (1 week)
+### M0 - Spike and skeleton (1 week) - code complete, Mac measurements pending; see `docs/M0.md`
 - Xcode project, menu bar item, entitlements, `NSAudioCaptureUsageDescription`.
 - Four throwaway demos on the target machine: process tap on Chrome/Safari captures Meet audio; `SpeechAnalyzer` streams text; `sqlite-vec` loads and queries; a Swift `URLSession` SSE client streams a Sonnet 5.5 answer with a cached prefix (verify `cache_read_input_tokens` > 0 on the second call).
 - Exit: numbers for each in `docs/DECISIONS.md`.

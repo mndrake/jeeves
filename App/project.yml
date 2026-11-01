@@ -1,0 +1,44 @@
+# XcodeGen spec for the Jeeves menu bar app.
+#   brew install xcodegen && cd App && xcodegen && open Jeeves.xcodeproj
+# The generated Jeeves.xcodeproj is not committed; regenerate after editing this file.
+name: Jeeves
+options:
+  bundleIdPrefix: dev.jeeves
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+packages:
+  JeevesKit:
+    path: ..
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
+    # Set your team to keep the system-audio permission across rebuilds; ad-hoc
+    # signed builds get a new identity each build and macOS asks again.
+    DEVELOPMENT_TEAM: ""
+targets:
+  Jeeves:
+    type: application
+    platform: macOS
+    sources:
+      - path: Jeeves
+        excludes:
+          - Info.plist
+          - Jeeves.entitlements
+    dependencies:
+      - package: JeevesKit
+        product: JeevesKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.jeeves.Jeeves
+        PRODUCT_NAME: Jeeves
+        INFOPLIST_FILE: Jeeves/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: Jeeves/Jeeves.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"
+        MARKETING_VERSION: 0.0.1
+        CURRENT_PROJECT_VERSION: 1
+        ENABLE_USER_SCRIPT_SANDBOXING: YES

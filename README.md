@@ -6,11 +6,13 @@ questions, instantly shows the best-matching passages from your knowledge base (
 notes plus documentation sites such as Anthropic's), and streams a short, cited answer
 from Claude underneath.
 
-- Hardware: 2026 MacBook Air, Apple M5, 16 GB. OS: macOS 26 Tahoe or later.
+- Hardware: 2026 MacBook Air, Apple M5, 16 GB. OS: macOS 26 Tahoe or later; developed on macOS 27 with Xcode 27.
 - Stack: Swift 6 / SwiftUI, Core Audio process taps, Apple SpeechAnalyzer, SQLite (FTS5 + sqlite-vec), Anthropic Messages API.
 - Audio and documents stay on the machine; only the detected question, a short transcript window and the retrieved passages are sent to Claude.
 
 Planning documents:
+
+- `docs/M0.md` - M0 runbook, results table and exit criteria
 
 - `docs/PLAN.md` - vision, architecture, decisions, latency budget, milestones M0-M6, risks, open questions
 - `docs/prd/01-audio-capture.md` - browser audio via Core Audio process taps
@@ -23,4 +25,19 @@ Planning documents:
 - `docs/prd/08-settings-privacy-models.md` - settings, API key, spend, privacy, distribution
 - `docs/DECISIONS.md` - interview answers and decision log
 
-Nothing is implemented yet; the plan is the deliverable of this phase.
+## Status
+
+Milestone M0 (spikes and skeleton) is code complete; Mac measurements are pending.
+See `docs/M0.md` for the runbook and results table.
+
+## Development
+
+```bash
+swift test                                   # macOS 26+ or Linux; Swift 6.2+
+swift run spike-claude --dry-run             # see the Claude request bodies
+swift run -c release spike-vec               # index latency on a synthetic corpus
+cd App && xcodegen && open Jeeves.xcodeproj  # menu bar app (macOS, Xcode 27)
+```
+
+`scripts/vendor-sqlite.sh` re-vendors SQLite and sqlite-vec at pinned versions.
+`scripts/mock-anthropic.py` serves a local streaming mock of the Messages API.
