@@ -1,7 +1,7 @@
 // M0 spike: Apple SpeechAnalyzer latency and throughput.
 //
 //   swift run spike-stt recordings/call.wav [--mode fast|accurate]        # offline file
-//   swift run spike-stt --live --browser chrome [--strategy bundle] [--seconds 120] [--mode fast]
+//   swift run spike-stt --live --browser chrome [--strategy pids] [--seconds 120] [--mode fast]
 //
 // File mode reports the real-time factor and prints final segments with timestamps
 // (paste them next to a reference transcript to estimate word error rate in M2).
@@ -17,7 +17,7 @@ import Transcription
 
 let flags = CommandLineFlags(switches: ["live", "help", "partials"])
 if flags.has("help") {
-    print("usage: spike-stt <file.wav> | --live --browser chrome [--strategy bundle|pids|system] [--seconds 120] [--mode fast|accurate] [--vocab a,b,c] [--partials]")
+    print("usage: spike-stt <file.wav> | --live --browser chrome [--strategy pids|system|bundle] [--seconds 120] [--mode fast|accurate] [--vocab a,b,c] [--partials]")
     exit(0)
 }
 
@@ -36,7 +36,7 @@ log("SpeechAnalyzer ready in \(String(format: "%.0f", MonotonicClock.millisecond
 
 if flags.has("live") {
     guard let browser = Browser(rawValue: flags.string("browser", default: "chrome")),
-          let strategy = TapStrategy(rawValue: flags.string("strategy", default: "bundle")) else {
+          let strategy = TapStrategy(rawValue: flags.string("strategy", default: "pids")) else {
         log("unknown --browser or --strategy")
         exit(2)
     }

@@ -1,13 +1,13 @@
 // M0 spike: capture a browser's call audio with a Core Audio process tap.
 //
 //   swift run spike-tap --list
-//   swift run spike-tap --browser chrome --strategy bundle --seconds 60 [--wav recordings/call.wav]
+//   swift run spike-tap --browser chrome [--strategy pids] --seconds 60 [--wav recordings/call.wav]
 //
-// Strategies: bundle (CATapDescription.bundleIDs, macOS 26), pids (the browser's helper
-// processes), system (everything except Jeeves). Run each against a live Meet call and
-// record which one captures the remote side. Prints callbacks, frames, gaps and CPU
-// every 5 seconds. macOS asks for "system audio recording" permission for the app that
-// launched the binary (your terminal) the first time.
+// Strategies: pids (the browser's processes; default), system (everything except
+// Jeeves), bundle (CATapDescription.bundleIDs, macOS 26; captured nothing from Chrome
+// in M0). Prints callbacks, frames, gaps, level and CPU every 5 seconds whether or not
+// audio arrives, and stops on time. macOS asks for "system audio recording" permission
+// for the app that launched the binary (your terminal) the first time.
 #if os(macOS)
 @preconcurrency import AVFoundation
 import AudioCapture
@@ -17,7 +17,7 @@ import JeevesCore
 let flags = CommandLineFlags(switches: ["list", "help"])
 
 if flags.has("help") {
-    print("usage: spike-tap --list | --browser chrome|safari|edge|arc|firefox [--strategy bundle|pids|system] [--seconds 60] [--wav out.wav]")
+    print("usage: spike-tap --list | --browser chrome|safari|edge|arc|firefox [--strategy pids|system|bundle] [--seconds 60] [--wav out.wav]")
     exit(0)
 }
 
@@ -32,7 +32,7 @@ if flags.has("list") {
 }
 
 guard let browser = Browser(rawValue: flags.string("browser", default: "chrome")),
-      let strategy = TapStrategy(rawValue: flags.string("strategy", default: "bundle")) else {
+      let strategy = TapStrategy(rawValue: flags.string("strategy", default: "pids")) else {
     log("unknown --browser or --strategy; see --help")
     exit(2)
 }
@@ -60,43 +60,70 @@ let writer = try flags.values["wav"].map { path -> WAVWriter in
 
 let startWall = MonotonicClock.now()
 let startCPU = cpuSeconds()
-var lastReport = startWall
-var peak: Float = -160
-var loudChunks = 0
-var deliveryLags: [Double] = []
 
-for await chunk in chunks {
-    try writer?.write(chunk.buffer)
-    peak = max(peak, chunk.rmsDecibels)
-    if chunk.rmsDecibels > -50 { loudChunks += 1 }
-    deliveryLags.append(MonotonicClock.millisecondsSince(chunk.capturedAt))
-
-    let now = MonotonicClock.now()
-    if MonotonicClock.milliseconds(from: lastReport, to: now) >= 5_000 {
-        lastReport = now
-        let s = tap.stats
-        let elapsed = MonotonicClock.milliseconds(from: startWall, to: now) / 1000
-        let cpu = (cpuSeconds() - startCPU) / elapsed * 100
-        print(String(format: "%5.0fs  callbacks %6ld  in %8ld  out %8ld  gaps %3ld (%ld frames)  peak %6.1f dB  cpu %4.1f%%",
-                     elapsed, s.callbacks, s.inputFrames, s.outputFrames, s.discontinuities, s.droppedFrames, peak, cpu))
-        peak = -160
+// Consume audio on its own task (writes the WAV, measures hand-off lag) so the clock
+// below keeps running even if the tap delivers nothing.
+let consumer = Task {
+    var lags: [Double] = []
+    var writeError: Error?
+    for await chunk in chunks {
+        lags.append(MonotonicClock.millisecondsSince(chunk.capturedAt))
+        if writeError == nil {
+            do { try writer?.write(chunk.buffer) } catch { writeError = error }
+        }
     }
-    if MonotonicClock.millisecondsSince(startWall) >= seconds * 1000 { break }
+    return (lags, writeError)
+}
+
+var elapsed = 0.0
+var warned = false
+while elapsed < seconds {
+    let step = min(5, seconds - elapsed)
+    try await Task.sleep(for: .seconds(step))
+    elapsed += step
+    let s = tap.stats
+    let cpu = (cpuSeconds() - startCPU) / max(elapsed, 0.001) * 100
+    print(String(format: "%5.0fs  callbacks %6ld (empty %ld)  in %8ld  out %8ld  gaps %3ld  peak %6.1f dB  audible %5ld  cpu %4.1f%%",
+                 elapsed, s.callbacks, s.emptyCallbacks, s.inputFrames, s.outputFrames, s.discontinuities,
+                 tap.takeIntervalPeak(), s.audibleChunks, cpu))
+    if !warned && s.callbacks == 0 {
+        print("  no IO callbacks at all: the tap's audio device is not running. Check the system audio recording permission for your terminal.")
+        warned = true
+    } else if !warned && s.inputFrames == 0 {
+        print("  callbacks arrive but carry no audio: this strategy is not capturing \(browser.rawValue). Try --strategy pids or system.")
+        warned = true
+    }
 }
 tap.stop()
+let (deliveryLags, writeError) = await consumer.value
 
 let s = tap.stats
-let elapsed = MonotonicClock.millisecondsSince(startWall) / 1000
+let wall = MonotonicClock.millisecondsSince(startWall) / 1000
+let verdict: String
+if s.callbacks == 0 {
+    verdict = "NO IO: the tap never ran (permission?)"
+} else if s.inputFrames == 0 {
+    verdict = "NOT CAPTURING: callbacks with no audio"
+} else if s.audibleChunks == 0 {
+    verdict = "SILENT: audio frames arrived but all below -50 dBFS (was anyone talking?)"
+} else if s.discontinuities > 0 {
+    verdict = "CAPTURING WITH GAPS"
+} else {
+    verdict = "CAPTURING"
+}
 print("""
 
-summary  browser=\(browser.rawValue) strategy=\(strategy.rawValue) seconds=\(String(format: "%.0f", elapsed))
+summary  browser=\(browser.rawValue) strategy=\(strategy.rawValue) seconds=\(String(format: "%.0f", wall))
+  verdict      \(verdict)
   input        \(s.inputSampleRate) Hz x \(s.inputChannels) ch, \(s.inputFrames) frames (\(String(format: "%.1f", Double(s.inputFrames) / max(s.inputSampleRate, 1))) s of audio)
   output       \(s.outputFrames) frames at 16 kHz (\(String(format: "%.1f", Double(s.outputFrames) / 16_000)) s)
+  callbacks    \(s.callbacks), of which \(s.emptyCallbacks) carried no audio
   gaps         \(s.discontinuities) (\(s.droppedFrames) frames), conversion errors \(s.conversionErrors)
-  audible      \(loudChunks) of \(s.callbacks) chunks above -50 dBFS  (0 means the tap heard silence: try another strategy)
-  cpu          \(String(format: "%.1f", (cpuSeconds() - startCPU) / elapsed * 100))% of one core
+  audible      \(s.audibleChunks) of \(s.callbacks - s.emptyCallbacks) chunks above -50 dBFS
+  cpu          \(String(format: "%.1f", (cpuSeconds() - startCPU) / max(wall, 0.001) * 100))% of one core
   chunk lag    \(LatencyStats(deliveryLags)?.summary ?? "-")  (IO callback to consumer)
 """)
+if let writeError { log("WAV write failed: \(writeError)") }
 #else
 print("spike-tap needs macOS 26 or later (Core Audio process taps).")
 #endif

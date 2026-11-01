@@ -17,7 +17,7 @@ final class ListeningModel {
 
     var phase: Phase = .idle
     var browser: Browser = .chrome
-    var strategy: TapStrategy = .bundleIDs
+    var strategy: TapStrategy = .processes
     var levelDecibels: Float = -160
     var partial = ""
     var finals: [String] = []
@@ -114,9 +114,9 @@ final class ListeningModel {
 extension TapStrategy {
     var label: String {
         switch self {
-        case .bundleIDs: "Browser (bundle ID)"
-        case .processes: "Browser processes"
+        case .processes: "Browser processes (recommended)"
         case .system: "All system audio"
+        case .bundleIDs: "Bundle ID (experimental)"
         }
     }
 }

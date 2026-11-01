@@ -65,3 +65,20 @@ Pending: PLAN section 9 (six low-stakes defaults). Shoot-out results from M0-M4 
   helper processes, and a system-wide tap excluding Jeeves.
 - **Linux container numbers** are in `docs/M0.md`: hybrid search at 10k chunks is
   17 ms p50 and 29 ms p95, well inside the 100 ms retrieval budget.
+
+## 2026-11-01 - M0 tap results (MacBook Air, macOS 26, Chrome + Google Meet, v0.0.1)
+
+| Strategy | Result | Gaps (30 s) | CPU | Audible chunks |
+|---|---|---|---|---|
+| `pids` (browser processes) | captures | 0 | 2.0% | 951 / 2,812 |
+| `system` (all except Jeeves) | captures | 0 | 1.9% | 1,820 / 2,812 |
+| `bundle` (`CATapDescription.bundleIDs`) | no audio delivered | - | - | - |
+
+- **Default capture strategy: `pids`.** It hears only the browser. `system` is the
+  fallback; it also captures notifications, music and other apps. The app and the spike
+  tools now default to `pids` (v0.0.2).
+- Tap format is 48 kHz mono mixdown; callback-to-consumer lag p50 0.1 ms.
+- Follow-ups for M1: `pids` snapshots the browser's processes when the tap starts, so a
+  helper launched later (new tab or call) is missed; re-scan and rebuild the tap when
+  Core Audio's process list changes. Confirm with live transcription that `pids` does
+  not drop speech that `system` hears.

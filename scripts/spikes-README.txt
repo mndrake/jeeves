@@ -10,7 +10,7 @@ Jeeves M0 spike tools (Apple silicon, macOS 26 or later)
    with `./spike-x`. For example:
 
        ./spike-tap --list
-       ./spike-tap --browser chrome --strategy bundle --seconds 60
+       ./spike-tap --browser chrome --seconds 30          # default strategy: pids
        ./spike-stt --live --browser chrome --seconds 120
        ./spike-vec --chunks 10000
        ANTHROPIC_API_KEY=sk-ant-... ./spike-claude --out claude.json

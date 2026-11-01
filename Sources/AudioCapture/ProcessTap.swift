@@ -17,7 +17,14 @@ public struct AudioChunk: @unchecked Sendable {
 }
 
 public struct TapStatistics: Sendable, Equatable {
+    /// Every IO cycle, including ones that carried no audio.
     public var callbacks = 0
+    /// IO cycles with no input frames: the aggregate device runs but the tap feeds it nothing.
+    public var emptyCallbacks = 0
+    /// Converted chunks louder than -50 dBFS (speech or other sound, not silence).
+    public var audibleChunks = 0
+    /// Loudest chunk since the last `takeIntervalPeak()`, in dBFS.
+    public var intervalPeakDecibels: Float = -160
     public var inputFrames = 0
     public var outputFrames = 0
     /// IO cycles whose sample time did not follow on from the previous one.
@@ -80,6 +87,14 @@ public final class ProcessTap: @unchecked Sendable {
     deinit { stop() }
 
     public var stats: TapStatistics { statistics.withLock { $0 } }
+
+    /// Returns the loudest level since the previous call and resets it (for progress reports).
+    public func takeIntervalPeak() -> Float {
+        statistics.withLock { stats in
+            defer { stats.intervalPeakDecibels = -160 }
+            return stats.intervalPeakDecibels
+        }
+    }
 
     /// Creates the tap and aggregate device and starts IO. Chunks arrive on the
     /// returned stream until `stop()` is called.
@@ -187,7 +202,13 @@ public final class ProcessTap: @unchecked Sendable {
     private func handleInput(_ inputData: UnsafePointer<AudioBufferList>, time: AudioTimeStamp, format: AVAudioFormat) {
         let capturedAt = MonotonicClock.now()
         guard let input = AVAudioPCMBuffer(pcmFormat: format, bufferListNoCopy: inputData, deallocator: nil),
-              input.frameLength > 0 else { return }
+              input.frameLength > 0 else {
+            statistics.withLock {
+                $0.callbacks += 1
+                $0.emptyCallbacks += 1
+            }
+            return
+        }
 
         // Detect gaps: each cycle should start where the previous one ended.
         var gap = 0
@@ -201,6 +222,7 @@ public final class ProcessTap: @unchecked Sendable {
         var output: AVAudioPCMBuffer?
         var failed = false
         do { output = try converter?.convert(input) } catch { failed = true }
+        let level = output?.rmsDecibels ?? -160
 
         statistics.withLock {
             $0.callbacks += 1
@@ -208,10 +230,12 @@ public final class ProcessTap: @unchecked Sendable {
             $0.outputFrames += Int(output?.frameLength ?? 0)
             if gap > 0 { $0.discontinuities += 1; $0.droppedFrames += gap }
             if failed { $0.conversionErrors += 1 }
+            if level > -50 { $0.audibleChunks += 1 }
+            $0.intervalPeakDecibels = max($0.intervalPeakDecibels, level)
         }
         if let output {
             continuation?.yield(AudioChunk(buffer: output, hostTime: time.mHostTime, capturedAt: capturedAt,
-                                           rmsDecibels: output.rmsDecibels))
+                                           rmsDecibels: level))
         }
     }
 
@@ -232,12 +256,18 @@ public final class ProcessTap: @unchecked Sendable {
     }
 }
 
+/// Capture strategies, in order of preference. M0 on a MacBook Air (macOS 26, Chrome +
+/// Meet): `processes` and `system` both captured the call with no gaps at about 2% CPU;
+/// `bundleIDs` delivered no audio. `processes` is the default because it hears only the
+/// browser, not notifications or other apps.
 public enum TapStrategy: String, CaseIterable, Sendable {
-    /// `CATapDescription.bundleIDs` with process restore (macOS 26).
-    case bundleIDs = "bundle"
     /// Every Core Audio process whose bundle ID matches the browser's prefixes.
+    /// Snapshot at start: a helper the browser launches later is not included (M1).
     case processes = "pids"
-    /// All system audio except Jeeves.
+    /// All system audio except Jeeves. Fallback when the browser's processes miss audio.
     case system
+    /// `CATapDescription.bundleIDs` with process restore (macOS 26). Captured nothing
+    /// from Chrome in M0; kept for further investigation.
+    case bundleIDs = "bundle"
 }
 #endif
