@@ -21,6 +21,8 @@ targets:
   Jeeves:
     type: application
     platform: macOS
+    # Shared scheme so `xcodebuild -scheme Jeeves` works in CI.
+    scheme: {}
     sources:
       - path: Jeeves
         excludes:

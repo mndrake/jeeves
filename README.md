@@ -30,6 +30,12 @@ Planning documents:
 Milestone M0 (spikes and skeleton) is code complete; Mac measurements are pending.
 See `docs/M0.md` for the runbook and results table.
 
+## Download
+
+Every push builds the app and spike tools on GitHub Actions. Download them from the
+latest **macOS build** run on the Actions tab; `docs/M0.md` explains how to open an
+unsigned build.
+
 ## Development
 
 ```bash

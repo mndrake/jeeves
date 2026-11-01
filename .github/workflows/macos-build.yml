@@ -1,0 +1,134 @@
+# Builds Jeeves.app and the M0 spike tools on a GitHub-hosted Apple silicon Mac,
+# so nothing has to be compiled locally.
+#
+# Every push and pull request produces two downloadable artifacts on the run page:
+#   Jeeves-macOS-arm64.zip         the menu bar app
+#   jeeves-spikes-macOS-arm64.zip  spike-claude, spike-vec, spike-tap, spike-stt
+# Pushing a tag such as v0.0.1 also publishes them as a GitHub release.
+#
+# Signing: ad-hoc by default, so macOS warns on first open (see docs/M0.md,
+# "Download a build"). Add the optional secrets below to sign with a Developer ID
+# certificate and notarize, which removes the warning.
+name: macOS build
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+    paths-ignore: ["docs/**", "**/*.md"]  # not applied to tag pushes
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: macos-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build app and spike tools
+    runs-on: macos-26
+    timeout-minutes: 60
+    permissions:
+      contents: write  # only used by the release step on tag pushes
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Select Xcode
+        # Newest stable Xcode 27, else newest Xcode 26 (both have the macOS 26 SDK
+        # and Swift 6.2+). Set the repository variable XCODE_APP to pin one, for
+        # example /Applications/Xcode_26.6.app.
+        env:
+          XCODE_APP: ${{ vars.XCODE_APP }}
+        run: |
+          if [[ -z "$XCODE_APP" ]]; then
+            XCODE_APP=$(ls -d /Applications/Xcode_27*.app /Applications/Xcode_26*.app 2>/dev/null \
+              | grep -vi beta | sort -V | tail -1)
+          fi
+          echo "Using $XCODE_APP"
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          xcodebuild -version
+          swift --version
+
+      - name: Run package tests
+        run: swift test
+
+      - name: Build spike tools (release, arm64)
+        run: |
+          swift build -c release --arch arm64
+          bin=$(swift build -c release --arch arm64 --show-bin-path)
+          mkdir -p dist/jeeves-spikes
+          cp "$bin"/spike-claude "$bin"/spike-vec "$bin"/spike-tap "$bin"/spike-stt dist/jeeves-spikes/
+          cp scripts/mock-anthropic.py dist/jeeves-spikes/
+          cp scripts/spikes-README.txt dist/jeeves-spikes/README.txt
+          echo "Built from ${GITHUB_SHA} (${GITHUB_REF_NAME}), run ${GITHUB_RUN_NUMBER}" > dist/jeeves-spikes/BUILD.txt
+
+      - name: Generate Xcode project
+        run: |
+          brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
+          cd App && xcodegen generate
+
+      - name: Build Jeeves.app
+        run: |
+          mkdir -p build
+          xcodebuild build \
+            -project App/Jeeves.xcodeproj \
+            -scheme Jeeves \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath build/DerivedData \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= \
+            CURRENT_PROJECT_VERSION="${GITHUB_RUN_NUMBER}" \
+            2>&1 | tee build/xcodebuild.log | grep -E 'error:|warning: .*Jeeves|\*\* BUILD' || true
+          grep -q '\*\* BUILD SUCCEEDED \*\*' build/xcodebuild.log || { tail -80 build/xcodebuild.log; exit 1; }
+          cp -R build/DerivedData/Build/Products/Release/Jeeves.app dist/
+
+      - name: Sign and notarize
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: scripts/ci-sign-macos.sh dist/Jeeves.app dist/jeeves-spikes App/Jeeves/Jeeves.entitlements
+
+      - name: Package
+        # ditto keeps executable bits and code signatures; plain zip does not.
+        run: |
+          cd dist
+          ditto -c -k --keepParent Jeeves.app Jeeves-macOS-arm64.zip
+          ditto -c -k --keepParent jeeves-spikes jeeves-spikes-macOS-arm64.zip
+          ls -lh *.zip
+
+      - name: Upload app
+        uses: actions/upload-artifact@v7
+        with:
+          path: dist/Jeeves-macOS-arm64.zip
+          archive: false
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Upload spike tools
+        uses: actions/upload-artifact@v7
+        with:
+          path: dist/jeeves-spikes-macOS-arm64.zip
+          archive: false
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: xcodebuild-log
+          path: build/xcodebuild.log
+          if-no-files-found: ignore
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/Jeeves-macOS-arm64.zip dist/jeeves-spikes-macOS-arm64.zip \
+            --title "Jeeves $GITHUB_REF_NAME" --prerelease \
+            --notes "Apple silicon build of ${GITHUB_SHA}. See docs/M0.md, \"Download a build\", for how to open it."
