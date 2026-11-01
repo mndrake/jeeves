@@ -14,6 +14,9 @@ let sqliteDefines: [CSetting] = [
     .define("SQLITE_OMIT_SHARED_CACHE"),
     .define("SQLITE_USE_ALLOCA"),
     .define("SQLITE_VEC_ENABLE_NEON", .when(platforms: [.macOS])),  // Apple silicon only
+    // SQLite defines MIN/MAX, which clash harmlessly with <sys/param.h> under clang
+    // modules on macOS (62 warnings). Allowed because the app uses this package locally.
+    .unsafeFlags(["-Wno-ambiguous-macro"], .when(platforms: [.macOS])),
 ]
 
 let package = Package(

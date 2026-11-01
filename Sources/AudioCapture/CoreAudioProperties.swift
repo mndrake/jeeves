@@ -27,22 +27,30 @@ enum AudioProperty {
         AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: kAudioObjectPropertyElementMain)
     }
 
-    static func scalar<T>(_ object: AudioObjectID, _ selector: AudioObjectPropertySelector, initial: T) throws -> T {
+    /// Reads a plain C value (integer, struct). `BitwiseCopyable` rules out types that
+    /// hold object references, which Core Audio must never write into.
+    static func scalar<T: BitwiseCopyable>(_ object: AudioObjectID, _ selector: AudioObjectPropertySelector, initial: T) throws -> T {
         var address = address(selector)
         var size = UInt32(MemoryLayout<T>.size)
         var value = initial
-        try check(AudioObjectGetPropertyData(object, &address, 0, nil, &size, &value), "read property \(selector) of \(object)")
+        let status = withUnsafeMutableBytes(of: &value) { bytes in
+            AudioObjectGetPropertyData(object, &address, 0, nil, &size, bytes.baseAddress!)
+        }
+        try check(status, "read property \(selector) of \(object)")
         return value
     }
 
-    static func array<T>(_ object: AudioObjectID, _ selector: AudioObjectPropertySelector, element: T) throws -> [T] {
+    static func array<T: BitwiseCopyable>(_ object: AudioObjectID, _ selector: AudioObjectPropertySelector, element: T) throws -> [T] {
         var address = address(selector)
         var size: UInt32 = 0
         try check(AudioObjectGetPropertyDataSize(object, &address, 0, nil, &size), "size of property \(selector)")
         let count = Int(size) / MemoryLayout<T>.size
         guard count > 0 else { return [] }
         var values = [T](repeating: element, count: count)
-        try check(AudioObjectGetPropertyData(object, &address, 0, nil, &size, &values), "read property \(selector)")
+        let status = values.withUnsafeMutableBytes { bytes in
+            AudioObjectGetPropertyData(object, &address, 0, nil, &size, bytes.baseAddress!)
+        }
+        try check(status, "read property \(selector)")
         return Array(values.prefix(Int(size) / MemoryLayout<T>.size))
     }
 
