@@ -32,9 +32,17 @@ See `docs/M0.md` for the runbook and results table.
 
 ## Download
 
-Every push builds the app and spike tools on GitHub Actions. Download them from the
-latest **macOS build** run on the Actions tab; `docs/M0.md` explains how to open an
-unsigned build.
+Every push builds the app and spike tools on GitHub Actions. To publish a release, run
+the **macOS build** workflow from the Actions tab with a version such as `v0.0.1`.
+Install the newest release from Terminal:
+
+```bash
+curl -fL -o /tmp/Jeeves.zip https://github.com/mndrake/jeeves/releases/latest/download/Jeeves-macOS-arm64.zip
+rm -rf /Applications/Jeeves.app && ditto -x -k /tmp/Jeeves.zip /Applications
+open /Applications/Jeeves.app
+```
+
+`docs/M0.md` covers browser downloads of the unsigned build and the spike tools.
 
 ## Development
 

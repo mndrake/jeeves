@@ -4,7 +4,11 @@
 # Every push and pull request produces two downloadable artifacts on the run page:
 #   Jeeves-macOS-arm64.zip         the menu bar app
 #   jeeves-spikes-macOS-arm64.zip  spike-claude, spike-vec, spike-tap, spike-stt
-# Pushing a tag such as v0.0.1 also publishes them as a GitHub release.
+#
+# Publishing a GitHub release (same pattern as mndrake/polly), either:
+#   - Actions tab > macOS build > Run workflow > enter a version such as v0.0.1.
+#     The workflow creates the tag on the commit it built; no local git needed.
+#   - or push a tag: git tag v0.0.1 && git push origin v0.0.1
 #
 # Signing: ad-hoc by default, so macOS warns on first open (see docs/M0.md,
 # "Download a build"). Add the optional secrets below to sign with a Developer ID
@@ -18,10 +22,20 @@ on:
     paths-ignore: ["docs/**", "**/*.md"]  # not applied to tag pushes
   pull_request:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version tag to create, e.g. v0.0.1. Leave empty to build without releasing."
+        required: false
+        default: ""
 
 concurrency:
-  group: macos-build-${{ github.ref }}
-  cancel-in-progress: true
+  group: macos-build-${{ github.ref }}-${{ github.event_name }}
+  # Never cancel a release build half way.
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  RELEASE: ${{ (github.event_name == 'workflow_dispatch' && inputs.version != '') || startsWith(github.ref, 'refs/tags/v') }}
+  TAG: ${{ inputs.version || github.ref_name }}
 
 jobs:
   build:
@@ -29,9 +43,24 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 60
     permissions:
-      contents: write  # only used by the release step on tag pushes
+      contents: write  # only used when publishing a release
     steps:
       - uses: actions/checkout@v7
+
+      - name: Check release version
+        if: env.RELEASE == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::Version must look like v0.0.1 (got '$TAG')"
+            exit 1
+          fi
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release $TAG already exists; pick a new version"
+            exit 1
+          fi
+          echo "Will publish release $TAG from ${GITHUB_SHA}"
 
       - name: Select Xcode
         # Newest stable Xcode 27, else newest Xcode 26 (both have the macOS 26 SDK
@@ -60,7 +89,7 @@ jobs:
           cp "$bin"/spike-claude "$bin"/spike-vec "$bin"/spike-tap "$bin"/spike-stt dist/jeeves-spikes/
           cp scripts/mock-anthropic.py dist/jeeves-spikes/
           cp scripts/spikes-README.txt dist/jeeves-spikes/README.txt
-          echo "Built from ${GITHUB_SHA} (${GITHUB_REF_NAME}), run ${GITHUB_RUN_NUMBER}" > dist/jeeves-spikes/BUILD.txt
+          echo "Built from ${GITHUB_SHA} (${GITHUB_REF_NAME}), run ${GITHUB_RUN_NUMBER}$([[ $RELEASE == true ]] && echo ", release $TAG")" > dist/jeeves-spikes/BUILD.txt
 
       - name: Generate Xcode project
         run: |
@@ -70,6 +99,8 @@ jobs:
       - name: Build Jeeves.app
         run: |
           mkdir -p build
+          version_settings=()
+          if [[ "$RELEASE" == true ]]; then version_settings=(MARKETING_VERSION="${TAG#v}"); fi
           xcodebuild build \
             -project App/Jeeves.xcodeproj \
             -scheme Jeeves \
@@ -78,7 +109,7 @@ jobs:
             -derivedDataPath build/DerivedData \
             ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
             CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= \
-            CURRENT_PROJECT_VERSION="${GITHUB_RUN_NUMBER}" \
+            CURRENT_PROJECT_VERSION="${GITHUB_RUN_NUMBER}" "${version_settings[@]}" \
             2>&1 | tee build/xcodebuild.log | grep -E 'error:|warning: .*Jeeves|\*\* BUILD' || true
           grep -q '\*\* BUILD SUCCEEDED \*\*' build/xcodebuild.log || { tail -80 build/xcodebuild.log; exit 1; }
           cp -R build/DerivedData/Build/Products/Release/Jeeves.app dist/
@@ -125,10 +156,28 @@ jobs:
           if-no-files-found: ignore
 
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: env.RELEASE == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+        # --target creates the tag on GitHub at the built commit when it does not exist yet.
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/Jeeves-macOS-arm64.zip dist/jeeves-spikes-macOS-arm64.zip \
-            --title "Jeeves $GITHUB_REF_NAME" --prerelease \
-            --notes "Apple silicon build of ${GITHUB_SHA}. See docs/M0.md, \"Download a build\", for how to open it."
+          gh release create "$TAG" dist/Jeeves-macOS-arm64.zip dist/jeeves-spikes-macOS-arm64.zip \
+            --target "$GITHUB_SHA" \
+            --title "Jeeves $TAG" \
+            --notes "$(cat <<'EOF'
+          Apple silicon build of Jeeves for macOS 26 or later.
+
+          **Install from Terminal** (no security warning, because `curl` does not set the quarantine flag):
+
+          ```bash
+          curl -fL -o /tmp/Jeeves.zip https://github.com/mndrake/jeeves/releases/latest/download/Jeeves-macOS-arm64.zip
+          rm -rf /Applications/Jeeves.app && ditto -x -k /tmp/Jeeves.zip /Applications
+          open /Applications/Jeeves.app
+          ```
+
+          Downloaded in a browser instead? This build is ad-hoc signed, not notarized, so clear the quarantine flag once: `xattr -dr com.apple.quarantine /Applications/Jeeves.app`
+
+          `jeeves-spikes-macOS-arm64.zip` holds the M0 spike tools; see docs/M0.md.
+          EOF
+          )"
+          echo "Published https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
