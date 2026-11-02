@@ -166,3 +166,83 @@ public struct TimelineAligner: Sendable {
         return fill
     }
 }
+
+/// Decides when a tap has stopped delivering audio.
+///
+/// A new tap can take a while to deliver its first audio (on the MacBook Air in M1 test 1,
+/// the first two attempts were restarted after 1.5 s and the third delivered audio after
+/// 462 ms), so it gets `startupTimeout`. Once audio has flowed, silence from the IO
+/// callbacks for `stallTimeout` means the tap is broken.
+public struct IOWatchdog: Sendable {
+    public enum Verdict: Equatable, Sendable {
+        case healthy
+        /// No first audio within the startup allowance.
+        case slowStart
+        /// Audio had been flowing and stopped.
+        case stalled
+    }
+
+    public var startupTimeout: Double
+    public var stallTimeout: Double
+
+    public init(startupTimeout: Double = 5, stallTimeout: Double = 1.5) {
+        self.startupTimeout = startupTimeout
+        self.stallTimeout = stallTimeout
+    }
+
+    public func check(now: UInt64, tapStartedAt: UInt64, firstCallbackAt: UInt64?, lastCallbackAt: UInt64?) -> Verdict {
+        guard firstCallbackAt != nil, let last = lastCallbackAt else {
+            return MonotonicClock.milliseconds(from: tapStartedAt, to: now) > startupTimeout * 1000 ? .slowStart : .healthy
+        }
+        return MonotonicClock.milliseconds(from: last, to: now) > stallTimeout * 1000 ? .stalled : .healthy
+    }
+}
+
+/// Records tap restarts as outages: a restart that is itself restarted before audio
+/// returns belongs to the same outage, whose length runs from the first restart to the
+/// first audio afterwards.
+public struct RestartLog: Sendable {
+    public struct Entry: Sendable, Equatable {
+        public var reason: String
+        public var at: UInt64
+        /// When the outage this restart belongs to began.
+        public var outageStart: UInt64
+        /// A later restart replaced this one before audio returned.
+        public var superseded = false
+        public var recoveredAt: UInt64?
+
+        /// Length of the whole outage, for the restart that ended it (nil otherwise).
+        public var outageMs: Double? {
+            guard !superseded, let recoveredAt else { return nil }
+            return MonotonicClock.milliseconds(from: outageStart, to: recoveredAt)
+        }
+    }
+
+    public private(set) var entries: [Entry] = []
+    private var pending: Int?
+
+    public init() {}
+
+    public var hasPending: Bool { pending != nil }
+
+    public mutating func began(reason: String, at time: UInt64) {
+        var outageStart = time
+        if let pending {
+            entries[pending].superseded = true
+            outageStart = entries[pending].outageStart
+        }
+        entries.append(Entry(reason: reason, at: time, outageStart: outageStart))
+        pending = entries.count - 1
+    }
+
+    public mutating func audioArrived(at time: UInt64) {
+        guard let pending else { return }
+        entries[pending].recoveredAt = time
+        self.pending = nil
+    }
+
+    /// Outages that ended, one per outage (superseded restarts are folded in).
+    public var outageDurationsMs: [Double] { entries.compactMap(\.outageMs) }
+    /// Outages still open (capture stopped before audio returned).
+    public var unrecovered: Int { entries.filter { !$0.superseded && $0.recoveredAt == nil }.count }
+}

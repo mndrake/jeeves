@@ -277,3 +277,17 @@ Same eight questions, answers from the user's `claude.json`:
   thin and verified by `spike-capture` on the Mac.
 - Open: whether `kAudioTapPropertyDescription` can be set on a running tap. Apple's
   documentation does not say; `spike-capture` reports it.
+
+## 2026-11-02 - M1 test 1: one-hour soak (v0.1.0)
+
+60:38 with a YouTube talk playing in Chrome, `pids` strategy: 3,631.6 s of audio (99.8%
+coverage), 0 gaps, CPU 1.4% of one core, peak memory 15.1 MB at minute one and at the end,
+no browser process changes. Capture itself is solid for an hour.
+
+The one failure was the supervisor's: the IO watchdog restarted the first tap at 2 s and
+the second at 4 s because neither had delivered audio within 1.5 s of starting; the
+third delivered audio 462 ms after starting. A new tap can take longer than 1.5 s to
+begin delivering, so v0.1.1 gives new taps 5 s (`IOWatchdog.startupTimeout`) and keeps
+1.5 s only for taps that have delivered audio. Restarts that are themselves restarted
+before audio returns are now one outage, timed from the first restart. `spike-capture`
+reports time to first audio so the real startup figure gets measured.

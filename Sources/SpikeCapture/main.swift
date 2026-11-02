@@ -100,8 +100,8 @@ let s = session.statistics
 let wall = MonotonicClock.millisecondsSince(start) / 1000
 let cpu = (cpuSeconds() - startCPU) / max(wall, 0.001) * 100
 let memoryEnd = peakMemoryMB()
-let downtimes = s.restarts.compactMap(\.downtimeMs)
-let worstDowntime = downtimes.max() ?? 0
+let outages = s.restartLog.outageDurationsMs
+let worstOutage = outages.max() ?? 0
 let coverage = s.outputSeconds / max(wall, 0.001)
 
 func check(_ ok: Bool) -> String { ok ? "PASS" : "FAIL" }
@@ -111,16 +111,19 @@ summary  browser=\(browser.rawValue) strategy=\(strategy.rawValue) wall=\(clock(
   audio        \(String(format: "%.1f", s.outputSeconds)) s emitted (\(String(format: "%.1f", s.silenceFilledSeconds)) s of it silence filled during restarts), coverage \(String(format: "%.1f", coverage * 100))%
   input        \(s.inputSampleRate) Hz x \(s.inputChannels) ch, \(s.callbacks) callbacks (\(s.emptyCallbacks) empty), \(s.audibleChunks) audible chunks
   retarget     \(s.retargets) in place, \(s.retargetFailures) refused; supported: \(s.retargetSupported.map { $0 ? "yes" : "no" } ?? "not needed")
-  restarts     \(s.restarts.count)\(s.restarts.isEmpty ? "" : ", worst downtime \(String(format: "%.0f", worstDowntime)) ms")
+  startup      \(s.startupMs.map { String(format: "first audio %.0f ms after the first tap started", $0) } ?? "no audio received")
+  restarts     \(s.restarts.count) in \(outages.count + s.restartLog.unrecovered) outages\(outages.isEmpty ? "" : ", worst outage \(String(format: "%.0f", worstOutage)) ms")
 """)
 for restart in s.restarts {
     let at = MonotonicClock.milliseconds(from: start, to: restart.at) / 1000
-    print("    [\(clock(at))] \(restart.reason)  downtime \(restart.downtimeMs.map { String(format: "%.0f ms", $0) } ?? "never recovered")")
+    let outcome = restart.superseded ? "retried again before audio returned"
+        : restart.outageMs.map { String(format: "audio back, outage %.0f ms", $0) } ?? "not recovered before stop"
+    print("    [\(clock(at))] \(restart.reason)  \(outcome)")
 }
 print("""
   checks
     \(check(s.discontinuities == 0))  no gaps inside a tap (\(s.discontinuities) gaps, \(s.droppedFrames) frames)
-    \(check(worstDowntime <= 2_000 && s.restarts.allSatisfy { $0.downtimeMs != nil }))  every restart back within 2 s
+    \(check(worstOutage <= 2_000 && s.restartLog.unrecovered == 0))  every outage back within 2 s
     \(check(cpu < 5))  CPU under 5% of one core (\(String(format: "%.1f", cpu))%)
     \(check(memoryEnd - (memoryAfterWarmup ?? memoryEnd) < 20))  memory flat after the first minute (peak \(String(format: "%.1f", memoryAfterWarmup ?? 0)) -> \(String(format: "%.1f", memoryEnd)) MB)
     \(check(coverage > 0.98 || s.callbacks == 0))  audio timeline covers the run (\(String(format: "%.1f", coverage * 100))%; low if the browser was not running)

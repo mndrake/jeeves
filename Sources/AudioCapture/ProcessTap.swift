@@ -35,6 +35,8 @@ public struct TapStatistics: Sendable, Equatable {
     public var inputChannels: Int = 0
     /// Monotonic time of the most recent IO callback (0 before the first), for stall detection.
     public var lastCallbackAt: UInt64 = 0
+    /// Monotonic time of the first IO callback (0 before it), for startup timing.
+    public var firstCallbackAt: UInt64 = 0
 }
 
 /// What to capture.
@@ -251,6 +253,7 @@ public final class ProcessTap: @unchecked Sendable {
                 $0.callbacks += 1
                 $0.emptyCallbacks += 1
                 $0.lastCallbackAt = capturedAt
+                if $0.firstCallbackAt == 0 { $0.firstCallbackAt = capturedAt }
             }
             return
         }
@@ -278,6 +281,7 @@ public final class ProcessTap: @unchecked Sendable {
             if level > -50 { $0.audibleChunks += 1 }
             $0.intervalPeakDecibels = max($0.intervalPeakDecibels, level)
             $0.lastCallbackAt = capturedAt
+            if $0.firstCallbackAt == 0 { $0.firstCallbackAt = capturedAt }
         }
         if let output {
             deliver?(AudioChunk(buffer: output, hostTime: time.mHostTime, capturedAt: capturedAt, rmsDecibels: level))

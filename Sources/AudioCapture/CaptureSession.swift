@@ -31,15 +31,11 @@ public enum CaptureEvent: Sendable {
 }
 
 public struct CaptureStatistics: Sendable {
-    public struct Restart: Sendable {
-        public var reason: String
-        /// Monotonic time the restart began.
-        public var at: UInt64
-        /// From the restart beginning to the first audio of the new tap (nil until then).
-        public var downtimeMs: Double?
-    }
-
-    public var restarts: [Restart] = []
+    /// Every tap restart, grouped into outages (see `RestartLog`).
+    public var restartLog = RestartLog()
+    public var restarts: [RestartLog.Entry] { restartLog.entries }
+    /// From the first tap starting to its first audio (nil until audio arrives).
+    public var startupMs: Double?
     public var retargets = 0
     public var retargetFailures = 0
     /// Whether in-place retargeting worked on this Mac (nil until first tried).
@@ -82,7 +78,8 @@ public struct CaptureStatistics: Sendable {
 ///   process is playing. Watched through Core Audio's process list plus a 1 s poll.
 /// - The default output device changes (AirPods connect or disconnect): the tap's
 ///   aggregate device is rebuilt on the new device.
-/// - IO stops arriving for `stallTimeout`: rebuilt.
+/// - No first audio within `watchdog.startupTimeout`, or IO stops arriving for
+///   `watchdog.stallTimeout` once it has flowed: rebuilt.
 /// - The browser quits: capture pauses and resumes when it plays audio again.
 /// Failed rebuilds retry with exponential backoff. Audio lost during a rebuild is
 /// replaced with silence so the consumer's timeline stays aligned with real time.
@@ -92,7 +89,7 @@ public final class CaptureSession: @unchecked Sendable {
     public let browser: Browser
     public let strategy: TapStrategy
     public let outputFormat: AVAudioFormat
-    public var stallTimeout: Double = 1.5
+    public var watchdog = IOWatchdog()
     public var pollInterval: Double = 1.0
 
     private let control = DispatchQueue(label: "jeeves.capture.control", qos: .userInitiated)
@@ -119,7 +116,7 @@ public final class CaptureSession: @unchecked Sendable {
         var continuation: AsyncStream<CaptureEvent>.Continuation?
         var aligner = TimelineAligner()
         var afterRestart = false
-        var pendingRestart: Int?
+        var firstTapStartedAt: UInt64?
         var stats = CaptureStatistics()
     }
     private let shared = Mutex(Shared())
@@ -187,9 +184,18 @@ public final class CaptureSession: @unchecked Sendable {
     private func tick() {
         guard running else { return }
         if let tap {
-            let last = max(tap.stats.lastCallbackAt, tapStartedAt)
-            if MonotonicClock.millisecondsSince(last) > stallTimeout * 1000 {
-                restart(reason: "audio IO stalled for \(String(format: "%.1f", stallTimeout)) s")
+            let stats = tap.stats
+            let verdict = watchdog.check(now: MonotonicClock.now(), tapStartedAt: tapStartedAt,
+                                         firstCallbackAt: stats.firstCallbackAt == 0 ? nil : stats.firstCallbackAt,
+                                         lastCallbackAt: stats.lastCallbackAt == 0 ? nil : stats.lastCallbackAt)
+            switch verdict {
+            case .healthy:
+                break
+            case .slowStart:
+                restart(reason: "no audio within \(String(format: "%g", watchdog.startupTimeout)) s of starting the tap")
+                return
+            case .stalled:
+                restart(reason: "audio IO stalled for \(String(format: "%g", watchdog.stallTimeout)) s")
                 return
             }
         }
@@ -269,7 +275,11 @@ public final class CaptureSession: @unchecked Sendable {
             tapStartedAt = MonotonicClock.now()
             outputDeviceName = (try? AudioProperty.defaultOutputDevice().name) ?? "unknown device"
             backoff.reset()
-            shared.withLock { if $0.pendingRestart != nil { $0.afterRestart = true } }
+            let startedAt = tapStartedAt
+            shared.withLock {
+                if $0.stats.restartLog.hasPending { $0.afterRestart = true }
+                if $0.firstTapStartedAt == nil { $0.firstTapStartedAt = startedAt }
+            }
             publish(.capturing(processes: tapped?.count ?? 0, outputDevice: outputDeviceName))
         } catch {
             publish(.reconnecting(reason: "\(error)"))
@@ -285,10 +295,7 @@ public final class CaptureSession: @unchecked Sendable {
     }
 
     private func restart(reason: String) {
-        shared.withLock {
-            $0.stats.restarts.append(.init(reason: reason, at: MonotonicClock.now(), downtimeMs: nil))
-            $0.pendingRestart = $0.stats.restarts.count - 1
-        }
+        shared.withLock { $0.stats.restartLog.began(reason: reason, at: MonotonicClock.now()) }
         publish(.reconnecting(reason: reason))
         stopTap()
         startTap(restarting: true)
@@ -364,13 +371,10 @@ public final class CaptureSession: @unchecked Sendable {
         let (fill, continuation) = shared.withLock { (state: inout Shared) -> (Double, AsyncStream<CaptureEvent>.Continuation?) in
             let fill = state.aligner.silenceBefore(chunkDuration: duration, capturedAt: chunk.capturedAt,
                                                    afterRestart: state.afterRestart)
-            if state.afterRestart {
-                state.afterRestart = false
-                if let index = state.pendingRestart {
-                    state.stats.restarts[index].downtimeMs =
-                        MonotonicClock.milliseconds(from: state.stats.restarts[index].at, to: chunk.capturedAt)
-                    state.pendingRestart = nil
-                }
+            state.afterRestart = false
+            state.stats.restartLog.audioArrived(at: chunk.capturedAt)
+            if state.stats.startupMs == nil, let started = state.firstTapStartedAt {
+                state.stats.startupMs = MonotonicClock.milliseconds(from: started, to: chunk.capturedAt)
             }
             state.stats.silenceFilledSeconds += fill
             state.stats.outputSeconds += fill + duration

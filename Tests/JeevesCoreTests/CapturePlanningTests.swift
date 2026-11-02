@@ -93,3 +93,46 @@ import Testing
         #expect(aligner.silenceBefore(chunkDuration: 0.01, capturedAt: t, afterRestart: true) == 2)
     }
 }
+
+@Suite struct IOWatchdogTests {
+    let s: UInt64 = 1_000_000_000
+
+    @Test func newTapsGetTheStartupAllowance() {
+        let watchdog = IOWatchdog(startupTimeout: 5, stallTimeout: 1.5)
+        // M1 test 1: no audio after 2 s used to trigger a restart; now it is still starting.
+        #expect(watchdog.check(now: 12 * s, tapStartedAt: 10 * s, firstCallbackAt: nil, lastCallbackAt: nil) == .healthy)
+        #expect(watchdog.check(now: 16 * s, tapStartedAt: 10 * s, firstCallbackAt: nil, lastCallbackAt: nil) == .slowStart)
+    }
+
+    @Test func flowingTapsUseTheStallTimeout() {
+        let watchdog = IOWatchdog(startupTimeout: 5, stallTimeout: 1.5)
+        #expect(watchdog.check(now: 31 * s, tapStartedAt: 10 * s, firstCallbackAt: 11 * s, lastCallbackAt: 30 * s) == .healthy)
+        #expect(watchdog.check(now: 32 * s, tapStartedAt: 10 * s, firstCallbackAt: 11 * s, lastCallbackAt: 30 * s) == .stalled)
+    }
+}
+
+@Suite struct RestartLogTests {
+    let ms: UInt64 = 1_000_000
+
+    @Test func retriesBeforeRecoveryAreOneOutage() {
+        // The M1 test 1 pattern: restarts at 2 s, 4 s and 6 s, audio back 462 ms after the last.
+        var log = RestartLog()
+        log.began(reason: "stalled", at: 2_000 * ms)
+        log.began(reason: "stalled", at: 4_000 * ms)
+        log.began(reason: "stalled", at: 6_000 * ms)
+        log.audioArrived(at: 6_462 * ms)
+        #expect(log.entries.map(\.superseded) == [true, true, false])
+        #expect(log.outageDurationsMs == [4_462])
+        #expect(log.unrecovered == 0 && !log.hasPending)
+    }
+
+    @Test func separateOutagesAreTimedSeparately() {
+        var log = RestartLog()
+        log.began(reason: "output device changed", at: 100_000 * ms)
+        log.audioArrived(at: 100_300 * ms)
+        log.audioArrived(at: 100_310 * ms)  // later audio does not touch a closed outage
+        log.began(reason: "stalled", at: 200_000 * ms)
+        #expect(log.outageDurationsMs == [300])
+        #expect(log.unrecovered == 1 && log.hasPending)
+    }
+}
