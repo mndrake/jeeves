@@ -14,8 +14,12 @@ import KnowledgeIndex
 //
 // --presets indexes both Anthropic doc sites. The app keeps its index in
 // ~/Library/Application Support/Jeeves/index.sqlite; pass that path to inspect it.
+//
+// Search is hybrid (BM25 + potion-base-8M vectors) unless --keyword-only is given.
+// The model (30 MB) is downloaded once into --models (default ./models); an index
+// built without vectors is embedded from its stored text on first use.
 
-let flags = CommandLineFlags(switches: ["presets", "verbose"])
+let flags = CommandLineFlags(switches: ["presets", "verbose", "keyword-only"])
 
 func fail(_ message: String) -> Never {
     FileHandle.standardError.write(Data("spike-kb: \(message)\n".utf8))
@@ -25,6 +29,27 @@ func fail(_ message: String) -> Never {
 let dbPath = flags.values["db"] ?? "kb.sqlite"
 let knowledge: KnowledgeBase
 do { knowledge = try KnowledgeBase(path: dbPath) } catch { fail("open \(dbPath): \(error)") }
+
+if !flags.has("keyword-only") {
+    let models = URL(fileURLWithPath: flags.values["models"] ?? "models", isDirectory: true)
+    do {
+        let started = MonotonicClock.now()
+        let embedder = try await EmbeddingModelStore.load(.potionBase8M, under: models) { progress in
+            print("   \(progress.phase) \(progress.completed)/\(progress.total)")
+        }
+        let loaded = MonotonicClock.milliseconds(from: started, to: MonotonicClock.now())
+        let embedded = try await knowledge.useEmbedder(embedder) { progress in
+            if progress.completed % 2048 < 256 || progress.completed == progress.total {
+                print("   \(progress.phase) \(progress.completed)/\(progress.total)")
+            }
+        }
+        let total = MonotonicClock.milliseconds(from: started, to: MonotonicClock.now())
+        print(String(format: "embedder: %@ (%d dims), loaded in %.0f ms%@", embedder.identifier, embedder.dimensions, loaded,
+                     embedded > 0 ? String(format: ", embedded %d chunks in %.1f s", embedded, (total - loaded) / 1000) : ""))
+    } catch {
+        fail("embedding model: \(error) (use --keyword-only to search without it)")
+    }
+}
 
 var sources: [KnowledgeSource] = []
 if flags.has("presets") { sources += [.claudePlatformDocs, .claudeCodeDocs] }
@@ -53,7 +78,7 @@ let total = (try? await knowledge.chunkCount()) ?? 0
 print("index: \(dbPath), \(total) chunks")
 
 func show(_ result: SearchResult, verbose: Bool) {
-    print(String(format: "query: %@  (%.1f ms)", result.query, result.milliseconds))
+    print(String(format: "query: %@  (%.1f ms, %@)", result.query, result.milliseconds, result.mode.rawValue))
     for passage in result.passages {
         print("  [\(passage.number)] \(passage.breadcrumb)\n      \(passage.source)")
         if verbose { print("      " + passage.text.prefix(300).replacingOccurrences(of: "\n", with: "\n      ")) }

@@ -97,10 +97,12 @@ public struct Passage: Sendable, Equatable, Identifiable {
 }
 
 public struct SearchResult: Sendable, Equatable {
+    public enum Mode: String, Sendable { case keyword, hybrid }
     /// The query after alias normalization ("cloud code" -> "Claude Code").
     public var query: String
     public var passages: [Passage]
     public var milliseconds: Double
+    public var mode: Mode = .keyword
 }
 
 public enum KnowledgeBaseError: Error, CustomStringConvertible, Sendable {
@@ -115,25 +117,33 @@ public enum KnowledgeBaseError: Error, CustomStringConvertible, Sendable {
     }
 }
 
-/// Owns the on-disk index and the ingestion pipeline. Searches are local SQLite
-/// FTS5 (BM25) queries, typically a few milliseconds.
-///
-/// M3 scope note: embeddings and hybrid search (ChunkIndex.hybridSearch) are wired
-/// in once the embedding-model shoot-out picks a model; until then retrieval is
-/// lexical, which the M0 spike showed is the fast half of hybrid search.
+/// Owns the on-disk index and the ingestion pipeline. Searches are local: SQLite
+/// FTS5 (BM25) and, once an embedder is set, sqlite-vec nearest neighbours fused
+/// with reciprocal rank fusion. Both take a few milliseconds.
 public actor KnowledgeBase {
     public nonisolated let path: String
     private let index: ChunkIndex
     private let chunker = MarkdownChunker()
     private let aliases: AliasTable
     private let session: URLSession
+    private var embedder: (any Embedder)?
+    /// Cached so keyword-only indexes skip the vector query.
+    private var hasVectors = false
+    /// Candidates taken from each retriever before fusion and diversification.
+    public var candidates = 60
 
-    public init(path: String, aliases: AliasTable = .anthropic) throws {
+    public init(path: String, aliases: AliasTable = .anthropic, embedder: (any Embedder)? = nil) throws {
         self.path = path
-        // The vector table is created now so hybrid search can be added without a
-        // schema change; 384 matches the small embedding models under evaluation.
-        index = try ChunkIndex(path: path, dimensions: 384)
+        // Reopen with the dimension count the vectors were built with; an embedder with a
+        // different model then rebuilds the vector table (chunks are kept).
+        let dimensions = ChunkIndex.recordedDimensions(path: path) ?? embedder?.dimensions ?? 256
+        index = try ChunkIndex(path: path, dimensions: dimensions)
         self.aliases = aliases
+        if let embedder {
+            try index.configureVectors(model: embedder.identifier, dimensions: embedder.dimensions)
+            self.embedder = embedder
+            hasVectors = try index.vectorCount() > 0
+        }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 30
         configuration.httpAdditionalHeaders = ["User-Agent": "Jeeves/0.3 (local knowledge indexer)"]
@@ -141,6 +151,47 @@ public actor KnowledgeBase {
     }
 
     public func chunkCount() throws -> Int { try index.count() }
+
+    public var embeddingModel: String? { embedder?.identifier }
+
+    /// Chunks with and without vectors, for status lines.
+    public func vectorCoverage() throws -> (embedded: Int, total: Int) {
+        (try index.vectorCount(), try index.count())
+    }
+
+    /// Switches on hybrid search. If the index was built with another model (or none),
+    /// its vectors are rebuilt from the stored chunk text; no source is re-fetched.
+    /// Returns the number of chunks embedded.
+    @discardableResult
+    public func useEmbedder(_ embedder: any Embedder,
+                            progress: (@Sendable (IndexProgress) -> Void)? = nil) async throws -> Int {
+        try index.configureVectors(model: embedder.identifier, dimensions: embedder.dimensions)
+        self.embedder = embedder
+        hasVectors = try index.vectorCount() > 0
+        return try await embedMissingChunks(progress: progress)
+    }
+
+    /// Embeds chunks that have no vector, in batches, yielding between batches so
+    /// searches can run while a large index is being embedded.
+    @discardableResult
+    public func embedMissingChunks(progress: (@Sendable (IndexProgress) -> Void)? = nil) async throws -> Int {
+        guard let embedder else { return 0 }
+        let total = try index.count() - index.vectorCount()
+        var done = 0
+        while true {
+            let batch = try index.chunksMissingVectors(limit: 256)
+            if batch.isEmpty { break }
+            try index.insertVectors(batch.map { (chunkID: $0.id!, embedding: embedder.embed(Self.embeddingText($0))) })
+            done += batch.count
+            hasVectors = true
+            progress?(IndexProgress(completed: done, total: max(total, done), phase: "Embedding"))
+            await Task.yield()
+        }
+        return done
+    }
+
+    /// What gets embedded for a chunk: its breadcrumb (page title and headings) and text.
+    static func embeddingText(_ chunk: Chunk) -> String { chunk.breadcrumb + "\n" + chunk.text }
 
     public func counts(for sourceID: String) throws -> (documents: Int, chunks: Int) {
         (try index.documentCount(collection: sourceID), try index.count(collection: sourceID))
@@ -164,7 +215,7 @@ public actor KnowledgeBase {
         let chunks = documents.flatMap { chunker.chunks(for: $0) }.map {
             Chunk(source: $0.source, breadcrumb: $0.breadcrumb, text: $0.text, collection: source.id)
         }
-        try index.replaceCollection(source.id, with: chunks)
+        try store(chunks, sourceID: source.id)
         return IndexReport(documents: documents.count, chunks: chunks.count, failures: failures,
                            seconds: MonotonicClock.milliseconds(from: started, to: MonotonicClock.now()) / 1000)
     }
@@ -174,11 +225,18 @@ public actor KnowledgeBase {
         let chunks = documents.flatMap { chunker.chunks(for: $0) }.map {
             Chunk(source: $0.source, breadcrumb: $0.breadcrumb, text: $0.text, collection: sourceID)
         }
-        try index.replaceCollection(sourceID, with: chunks)
+        try store(chunks, sourceID: sourceID)
         return chunks.count
     }
 
-    /// BM25 search over chunk text and breadcrumbs, after alias normalization.
+    private func store(_ chunks: [Chunk], sourceID: String) throws {
+        let embeddings = embedder.map { embedder in chunks.map { embedder.embed(Self.embeddingText($0)) } }
+        try index.replaceCollection(sourceID, with: chunks, embeddings: embeddings)
+        if embeddings != nil && !chunks.isEmpty { hasVectors = true }
+    }
+
+    /// Search after alias normalization: BM25 over chunk text and breadcrumbs, fused
+    /// with vector search when an embedder is set (`SearchResult.mode`).
     ///
     /// Results are diversified: at most `perSection` chunks from one section and
     /// `perDocument` from one page, so a long section split into many chunks cannot
@@ -186,22 +244,29 @@ public actor KnowledgeBase {
     public func search(_ text: String, limit: Int = 6, perSection: Int = 2, perDocument: Int = 3) throws -> SearchResult {
         let started = MonotonicClock.now()
         let query = aliases.apply(to: text)
-        let hits = try index.lexicalSearch(query, limit: max(limit * 5, 30))
+        let lexical = try index.lexicalSearch(query, limit: max(limit * 5, candidates)).map(\.chunkID)
+        var ranked = lexical
+        var mode = SearchResult.Mode.keyword
+        if let embedder, hasVectors {
+            let vector = try index.vectorSearch(embedder.embed(query), limit: max(limit * 5, candidates)).map(\.chunkID)
+            ranked = reciprocalRankFusion([lexical, vector]).map(\.id)
+            mode = .hybrid
+        }
         var passages: [Passage] = []
         var sectionCounts: [String: Int] = [:]
         var documentCounts: [String: Int] = [:]
-        for hit in hits {
+        for chunkID in ranked {
             guard passages.count < limit else { break }
-            guard let chunk = try index.chunk(id: hit.chunkID) else { continue }
+            guard let chunk = try index.chunk(id: chunkID) else { continue }
             let section = chunk.source + "#" + chunk.breadcrumb
             guard sectionCounts[section, default: 0] < perSection, documentCounts[chunk.source, default: 0] < perDocument else { continue }
             sectionCounts[section, default: 0] += 1
             documentCounts[chunk.source, default: 0] += 1
-            passages.append(Passage(number: passages.count + 1, chunkID: hit.chunkID, breadcrumb: chunk.breadcrumb,
+            passages.append(Passage(number: passages.count + 1, chunkID: chunkID, breadcrumb: chunk.breadcrumb,
                                     source: chunk.source, text: chunk.text))
         }
         return SearchResult(query: query, passages: passages,
-                            milliseconds: MonotonicClock.milliseconds(from: started, to: MonotonicClock.now()))
+                            milliseconds: MonotonicClock.milliseconds(from: started, to: MonotonicClock.now()), mode: mode)
     }
 
     // MARK: Loading
@@ -228,35 +293,41 @@ public actor KnowledgeBase {
     /// Fetches pages eight at a time, keeping index order.
     private func fetchAll(_ links: [LLMSTxt.Link],
                           progress: (@Sendable (IndexProgress) -> Void)?) async -> ([SourceDocument], [String]) {
-        var results = [SourceDocument?](repeating: nil, count: links.count)
+        var fetched: [(index: Int, document: SourceDocument)] = []
         var failures: [String] = []
         var completed = 0
         await withTaskGroup(of: (Int, Result<SourceDocument, Error>).self) { group in
-            var next = 0
-            func addNext() {
-                guard next < links.count else { return }
-                let index = next
+            // Results are appended and sorted afterwards: writing `results[index]` into a
+            // preallocated array of optionals here crashed in optimized builds (Swift 6.4.2
+            // on Linux, Array.subscript.modify trap), though debug builds were fine.
+            var pending = links.indices.makeIterator()
+            for _ in 0..<8 {
+                guard let index = pending.next() else { break }
                 let link = links[index]
-                next += 1
                 group.addTask { [self] in
                     do { return (index, .success(try await fetchDocument(link.url, title: link.title))) }
                     catch { return (index, .failure(error)) }
                 }
             }
-            for _ in 0..<8 { addNext() }
-            for await (index, result) in group {
+            while let (index, result) = await group.next() {
                 switch result {
-                case .success(let document): results[index] = document
+                case .success(let document): fetched.append((index, document))
                 case .failure(let error): failures.append("\(links[index].url.absoluteString): \(error)")
                 }
                 completed += 1
                 if completed % 10 == 0 || completed == links.count {
                     progress?(IndexProgress(completed: completed, total: links.count, phase: "Fetching pages"))
                 }
-                addNext()
+                if let nextIndex = pending.next() {
+                    let link = links[nextIndex]
+                    group.addTask { [self] in
+                        do { return (nextIndex, .success(try await fetchDocument(link.url, title: link.title))) }
+                        catch { return (nextIndex, .failure(error)) }
+                    }
+                }
             }
         }
-        return (results.compactMap { $0 }, failures)
+        return (fetched.sorted { $0.index < $1.index }.map(\.document), failures)
     }
 
     nonisolated func fetchText(_ url: URL) async throws -> String {

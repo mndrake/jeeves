@@ -11,6 +11,9 @@ final class KnowledgeModel {
     private(set) var progress: [String: String] = [:]
     private(set) var totalChunks = 0
     private(set) var openError: String?
+    /// "Hybrid search (potion-base-8M)", "Downloading search model 12/30 MB", ...
+    private(set) var searchStatus = "Keyword search"
+    private(set) var isHybrid = false
     var searchResult: SearchResult?
 
     let base: KnowledgeBase?
@@ -23,7 +26,34 @@ final class KnowledgeModel {
             base = nil
             openError = "Could not open the index at \(AppPaths.index.path): \(error)"
         }
-        Task { await refreshCounts() }
+        Task {
+            await refreshCounts()
+            await enableHybridSearch()
+        }
+    }
+
+    static var modelsDirectory: URL { AppPaths.directory.appendingPathComponent("models", isDirectory: true) }
+
+    /// Downloads the embedding model on first launch (30 MB, pinned and checksummed),
+    /// then embeds any passages indexed without vectors. Search stays keyword-only
+    /// until this finishes, and keeps working while it runs.
+    func enableHybridSearch() async {
+        guard let base, !isHybrid else { return }
+        let spec = StaticModelSpec.potionBase8M
+        do {
+            let embedder = try await EmbeddingModelStore.load(spec, under: Self.modelsDirectory) { [weak self] update in
+                let line = "\(update.phase) \(update.completed)/\(update.total)"
+                Task { @MainActor in self?.searchStatus = line }
+            }
+            try await base.useEmbedder(embedder) { [weak self] update in
+                let line = "Preparing hybrid search: \(update.completed)/\(update.total) passages"
+                Task { @MainActor in self?.searchStatus = line }
+            }
+            isHybrid = true
+            searchStatus = "Hybrid search (keywords + \(spec.name))"
+        } catch {
+            searchStatus = "Keyword search only: \(error)"
+        }
     }
 
     var isIndexing: Bool { !progress.isEmpty }

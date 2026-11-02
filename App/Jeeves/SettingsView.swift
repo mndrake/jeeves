@@ -44,6 +44,13 @@ struct SettingsView: View {
 
             Section("Knowledge sources") {
                 Text(knowledge.summary).font(.callout).foregroundStyle(.secondary)
+                HStack {
+                    Text(knowledge.searchStatus).font(.caption)
+                        .foregroundStyle(knowledge.isHybrid ? Color.secondary : Color.orange)
+                    if !knowledge.isHybrid && knowledge.searchStatus.hasPrefix("Keyword search only") {
+                        Button("Retry") { Task { await knowledge.enableHybridSearch() } }.controlSize(.small)
+                    }
+                }
                 if knowledge.sources.isEmpty {
                     Text("Nothing indexed yet. Start with the Anthropic docs, add a folder of Markdown notes, or paste a URL.")
                         .font(.callout)
@@ -79,7 +86,8 @@ struct SettingsView: View {
                 TextField("Type a question to see which passages Jeeves would use", text: $searchDraft)
                     .onSubmit { knowledge.search(searchDraft) }
                 if let result = knowledge.searchResult {
-                    Text(String(format: "%ld passages in %.1f ms for: %@", result.passages.count, result.milliseconds, result.query))
+                    Text(String(format: "%ld passages in %.1f ms (%@) for: %@", result.passages.count, result.milliseconds,
+                                result.mode.rawValue, result.query))
                         .font(.caption).foregroundStyle(.secondary)
                     ForEach(result.passages) { passage in
                         PassageRow(passage: passage)

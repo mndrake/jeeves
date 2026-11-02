@@ -41,3 +41,44 @@ how do I use cloud code with Bedrock	amazon-bedrock
 how do I make a slash command	skills|slash-commands|commands
 how do I run parallel sessions with worktrees	worktrees
 how do I see how much cloud code is costing me	costs|monitoring-usage
+# Held-out set (added for the embedding shoot-out, written before seeing any embedding results)
+how do I give Claude a tool to call	define-tools|tool-use/overview|how-tool-use-works
+can Claude call several tools at once	parallel-tool-use
+what's the difference between server tools and client tools	server-tools|how-tool-use-works|tool-use/overview
+how does computer use work	computer-use-tool|browser-use
+can Claude fetch a web page for me	web-fetch-tool
+what is the memory tool	memory-tool
+how do I make tool inputs follow my schema exactly	strict-tool-use|structured-outputs
+how do I search over thousands of tools	tool-search-tool
+what is programmatic tool calling	programmatic-tool-calling
+does the text editor tool work with sonnet	text-editor-tool
+how do I send images to Claude	build-with-claude/vision
+what does fast mode do	fast-mode
+what is a task budget	task-budgets
+how do I keep thinking blocks when I use tools	thinking-tool-workflows|preserved-thinking|compaction-thinking-blocks
+how do I reduce latency	reduce-latency
+how do I stop the model making things up	reduce-hallucinations
+what languages does Claude support	multilingual-support
+what are managed agents	managed-agents/overview
+how do I set a budget for a managed agent session	managed-agents/budgets
+can a managed agent access GitHub	managed-agents/github
+how do webhooks work for agents	managed-agents/webhooks|organization-webhooks
+what is the admin API	admin-api
+how do workspaces work	manage-claude/workspaces
+where is my data stored and can I pick the region	data-residency
+what is zero data retention	api-and-data-retention|cmek-data-retention
+how do I use Claude on Google Cloud	claude-models-on-google-cloud
+how do I use the API on Bedrock	claude-in-amazon-bedrock|claude-on-amazon-bedrock-legacy|claude-platform-on-aws
+what's new in opus five five	models/opus-5-5|whats-new
+which model should I choose	choosing-a-model|models/overview
+how do I migrate to fable five one	fable-5-1/migration-guide
+how do I use cloud code in VS code	vs-code
+does cloud code work in JetBrains	jetbrains
+how do I control cloud code from my phone	remote-control|mobile
+how do I schedule a recurring task in cloud code	scheduled-tasks|routines|desktop-scheduled-tasks
+how do I review a pull request with cloud code	code-review
+what is ultrareview	ultrareview
+how do I use cloud code in Slack	en/slack|claude-tag
+how do I let cloud code use my browser	en/chrome|computer-use
+how do I set up cloud code for my whole company	admin-setup|managed-settings|third-party-integrations
+what does the error overloaded mean in cloud code	en/errors|troubleshooting

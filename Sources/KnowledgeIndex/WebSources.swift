@@ -22,6 +22,8 @@ public enum LLMSTxt {
             let path = url.path
             let last = url.lastPathComponent.lowercased()
             if last.hasPrefix("llms") && last.hasSuffix(".txt") { continue }
+            // Nested indexes (code.claude.com links translated-page indexes under /_llms/).
+            if path.contains("/_llms/") { continue }
             if excluding.contains(where: { !$0.isEmpty && path.contains($0) }) { continue }
             // One page per URL, ignoring fragments.
             var components = URLComponents(url: url, resolvingAgainstBaseURL: false)

@@ -33,7 +33,7 @@ public struct SearchHit: Sendable, Equatable {
 /// M0 scope: schema, insert, the three query paths and their latency. Enrichment
 /// columns (context prefix, synthetic questions) arrive in M3.
 public final class ChunkIndex {
-    public let dimensions: Int
+    public private(set) var dimensions: Int
     public let connection: SQLiteConnection
 
     private let insertChunk: Statement
@@ -68,6 +68,7 @@ public final class ChunkIndex {
         CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec USING vec0(
             embedding float[\(dimensions)] distance_metric=cosine
         );
+        CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         """)
         insertChunk = try connection.prepare("INSERT INTO chunks(source, breadcrumb, text, collection) VALUES (?, ?, ?, ?)")
         insertVector = try connection.prepare("INSERT INTO chunks_vec(rowid, embedding) VALUES (?, ?)")
@@ -105,6 +106,86 @@ public final class ChunkIndex {
         }
     }
 
+    // MARK: Vectors
+
+    public func metaValue(_ key: String) throws -> String? {
+        let statement = try connection.prepare("SELECT value FROM meta WHERE key = ?")
+        try statement.bind(1, key)
+        return try statement.step() ? statement.string(0) : nil
+    }
+
+    public func setMeta(_ key: String, _ value: String) throws {
+        let statement = try connection.prepare("INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+        try statement.bind(1, key)
+        try statement.bind(2, value)
+        try statement.run()
+    }
+
+    /// Makes the vector table match an embedding model. If the index was built with a
+    /// different model or dimension count, all vectors are dropped (chunks are kept)
+    /// and this returns true: call `chunksMissingVectors` to re-embed them.
+    @discardableResult
+    public func configureVectors(model: String, dimensions newDimensions: Int) throws -> Bool {
+        precondition(newDimensions > 0)
+        let current = try metaValue("embedding_model")
+        if current == model && newDimensions == dimensions { return false }
+        try connection.transaction {
+            try connection.execute("""
+            DROP TABLE IF EXISTS chunks_vec;
+            CREATE VIRTUAL TABLE chunks_vec USING vec0(embedding float[\(newDimensions)] distance_metric=cosine);
+            """)
+            try setMeta("embedding_model", model)
+            try setMeta("embedding_dimensions", String(newDimensions))
+        }
+        dimensions = newDimensions
+        return true
+    }
+
+    /// Reads the dimension count recorded by `configureVectors`, if any, so an index can
+    /// be reopened without knowing its model in advance.
+    public static func recordedDimensions(path: String) -> Int? {
+        guard path != ":memory:", FileManager.default.fileExists(atPath: path),
+              let connection = try? SQLiteConnection(path: path),
+              let statement = try? connection.prepare("SELECT value FROM meta WHERE key = 'embedding_dimensions'"),
+              (try? statement.step()) == true else { return nil }
+        return statement.string(0).flatMap(Int.init)
+    }
+
+    public func vectorCount() throws -> Int {
+        let statement = try connection.prepare("SELECT count(*) FROM chunks_vec")
+        _ = try statement.step()
+        return Int(statement.int64(0))
+    }
+
+    /// Chunks that have no vector yet, oldest first.
+    public func chunksMissingVectors(limit: Int) throws -> [Chunk] {
+        let statement = try connection.prepare("""
+        SELECT id, source, breadcrumb, text, collection FROM chunks
+        WHERE id NOT IN (SELECT rowid FROM chunks_vec) ORDER BY id LIMIT ?
+        """)
+        try statement.bind(1, Int64(limit))
+        var chunks: [Chunk] = []
+        while try statement.step() {
+            chunks.append(Chunk(id: statement.int64(0), source: statement.string(1) ?? "", breadcrumb: statement.string(2) ?? "",
+                                text: statement.string(3) ?? "", collection: statement.string(4) ?? ""))
+        }
+        return chunks
+    }
+
+    /// Stores vectors for existing chunks, in one transaction.
+    public func insertVectors(_ items: [(chunkID: Int64, embedding: [Float])]) throws {
+        try connection.transaction {
+            for item in items {
+                guard item.embedding.count == dimensions else {
+                    throw SQLiteError(code: -1, message: "embedding has \(item.embedding.count) dimensions, index expects \(dimensions)")
+                }
+                try insertVector.bind(1, item.chunkID)
+                try insertVector.bind(2, vector: item.embedding)
+                try insertVector.run()
+            }
+        }
+    }
+
     /// Inserts chunks without embeddings (lexical search only), in one transaction.
     @discardableResult
     public func insert(chunks: [Chunk]) throws -> [Int64] {
@@ -122,17 +203,28 @@ public final class ChunkIndex {
 
     /// Replaces a collection's chunks atomically: searches see either the old set or
     /// the new one, never a half-indexed source.
-    public func replaceCollection(_ collection: String, with chunks: [Chunk]) throws {
+    ///
+    /// `embeddings`, when given, holds one vector per chunk in the same order.
+    public func replaceCollection(_ collection: String, with chunks: [Chunk], embeddings: [[Float]]? = nil) throws {
+        precondition(embeddings == nil || embeddings!.count == chunks.count)
         let delete = try connection.prepare("DELETE FROM chunks WHERE collection = ?")
         try connection.transaction {
             try delete.bind(1, collection)
             try delete.run()
-            for chunk in chunks {
+            for (offset, chunk) in chunks.enumerated() {
                 try insertChunk.bind(1, chunk.source)
                 try insertChunk.bind(2, chunk.breadcrumb)
                 try insertChunk.bind(3, chunk.text)
                 try insertChunk.bind(4, collection)
                 try insertChunk.run()
+                if let embedding = embeddings?[offset] {
+                    guard embedding.count == dimensions else {
+                        throw SQLiteError(code: -1, message: "embedding has \(embedding.count) dimensions, index expects \(dimensions)")
+                    }
+                    try insertVector.bind(1, connection.lastInsertRowID)
+                    try insertVector.bind(2, vector: embedding)
+                    try insertVector.run()
+                }
             }
         }
     }
