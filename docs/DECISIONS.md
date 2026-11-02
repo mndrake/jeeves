@@ -159,4 +159,9 @@ above -45 dBFS): Jeeves calls `SpeechAnalyzer.finalize(through:)` at each detect
 - **Open question:** how often the partial at the moment of silence differs from the
   final enough to change retrieval. Measure by saving the partial at each detected end
   and comparing it with the final that later covers it.
-- The 300 ms variant (test 3) is expected to fragment more and is optional.
+- 300 ms variant (test 3): speech end to final p50 404 ms, p95 444 ms (n=17), final lag
+  p50 128 ms; 18 ends detected, 17 matched, 1 merged. Fragmentation was worse, as
+  expected: the same 60 seconds split into 18 finals, many of them junk ("." ", your."
+  ", to..............." "of..") and more mishearings ("SCO sessions start in on the
+  boat"). This confirms the decision: shorter forced finals trade accuracy for speed,
+  and the partial-text trigger gets the speed without touching the engine's finals.
