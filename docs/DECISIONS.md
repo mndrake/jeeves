@@ -335,3 +335,10 @@ The watchdog fix holds either way; pause filling simply rarely triggers.
   (v0.1.3) runs it; default stays `output` until measured. Fallback if it fails:
   make-before-break rebuilds (start the new tap, keep the old one until the new one
   delivers).
+
+## 2026-11-02 - M1 test 5 (v0.1.2): quit and reopen Chrome passes
+
+Chrome quit mid-run: capture reported that Chrome had no audio processes and waited, with
+no restarts or errors. Chrome reopened: capture resumed by itself about 15 s later with 0
+gaps; 5 s of silence (the cap) was filled, so the timeline is 10 s short across a long
+absence, as designed.
