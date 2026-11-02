@@ -4,9 +4,11 @@ import JeevesCore
 import SwiftUI
 
 struct StatusView: View {
-    @Bindable var model: ListeningModel
+    let app: AppModel
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
+        @Bindable var model = app.listening
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Jeeves").font(.headline)
@@ -35,10 +37,28 @@ struct StatusView: View {
                     .lineLimit(2)
             }
 
-            Button(model.isRunning ? "Stop listening" : "Start listening") {
-                model.isRunning ? model.stop() : model.start()
+            HStack {
+                Button(model.isRunning ? "Stop listening" : "Start listening") {
+                    if model.isRunning {
+                        model.stop()
+                    } else {
+                        model.start()
+                        app.panel.show()
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                Button("Answers panel") { app.panel.toggle() }
+                Spacer()
+                Button("Settings...") { showSettings() }
             }
-            .keyboardShortcut(.defaultAction)
+
+            Toggle("Answer detected questions automatically",
+                   isOn: Binding(get: { app.assistant.autoAnswer }, set: { app.assistant.autoAnswer = $0 }))
+                .font(.callout)
+            Text(knowledgeLine)
+                .font(.caption)
+                .foregroundStyle(app.knowledge.isEmpty || !app.assistant.hasAPIKey ? Color.orange : Color.secondary)
+                .lineLimit(2)
 
             Divider()
 
@@ -55,9 +75,13 @@ struct StatusView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(height: 240)
+                .frame(height: 180)
                 .onChange(of: model.finals.count) { proxy.scrollTo("bottom") }
                 .onChange(of: model.partial) { proxy.scrollTo("bottom") }
+            }
+
+            if let detection = model.lastDetection {
+                Text(detection).font(.caption).foregroundStyle(.blue).lineLimit(2)
             }
 
             if let lag = model.lagSummary {
@@ -66,17 +90,39 @@ struct StatusView: View {
 
             Divider()
             HStack {
-                Text("M1 build: transcript only").font(.caption).foregroundStyle(.tertiary)
+                Text("Jeeves \(Self.version): Q&A from your notes").font(.caption).foregroundStyle(.tertiary)
                 Spacer()
                 Button("Quit") { NSApplication.shared.terminate(nil) }
             }
         }
         .padding(14)
         .frame(width: 400)
+        .onAppear {
+            app.openSettingsWindow = { [openWindow] in
+                openWindow(id: "settings")
+                NSApp.activate()
+            }
+        }
+    }
+
+    private func showSettings() {
+        openWindow(id: "settings")
+        NSApp.activate()
+    }
+
+    private var knowledgeLine: String {
+        if app.knowledge.isIndexing { return "Indexing... " + app.knowledge.summary }
+        if app.knowledge.isEmpty { return "No knowledge sources yet: open Settings to add the Anthropic docs or your notes." }
+        if !app.assistant.hasAPIKey { return "No API key: passages only. Add a key in Settings for answers." }
+        return app.knowledge.summary + " · " + AssistantModel.label(for: app.assistant.mode)
+    }
+
+    static var version: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
     }
 
     private var isFailure: Bool {
-        if case .failed = model.phase { return true }
+        if case .failed = app.listening.phase { return true }
         return false
     }
 }

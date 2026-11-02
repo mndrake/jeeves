@@ -4,7 +4,9 @@ import JeevesCore
 import Observation
 import Transcription
 
-/// Owns one listening session: browser tap -> SpeechAnalyzer -> transcript.
+/// Owns one listening session: browser tap -> SpeechAnalyzer -> transcript, and at
+/// each end of speech (400 ms of silence) hands the provisional utterance to question
+/// detection (docs/prd/03).
 @MainActor
 @Observable
 final class ListeningModel {
@@ -24,6 +26,16 @@ final class ListeningModel {
     /// The capture supervisor's latest status ("capturing 12 processes, output: AirPods").
     var captureStatus = ""
     private(set) var finalLags: [Double] = []
+    /// The most recent utterance, for "Answer last" when detection missed a question.
+    private(set) var lastUtterance = ""
+    /// The last utterance detection judged a question, and why (shown under the transcript).
+    private(set) var lastDetection: String?
+
+    /// Called with each detected question.
+    var onQuestion: (@MainActor (String) -> Void)?
+
+    private var tracker = UtteranceTracker()
+    private let detector = QuestionDetector()
 
     private var capture: CaptureSession?
     private var session: SpeechAnalyzerSession?
@@ -53,6 +65,9 @@ final class ListeningModel {
         finals = []
         finalLags = []
         captureStatus = ""
+        lastUtterance = ""
+        lastDetection = nil
+        tracker = UtteranceTracker()
         runTask = Task { await run() }
     }
 
@@ -86,10 +101,19 @@ final class ListeningModel {
             // Feed audio off the main actor; publish the level at most 10 times a second.
             feedTask = Task.detached { [weak self] in
                 var lastLevel: UInt64 = 0
+                // Runs on the same chunks the speech engine gets, so its audio clock
+                // matches the transcript's timestamps.
+                var endpointer = SilenceEndpointer()
                 for await event in events {
                     switch event {
                     case .audio(let chunk):
                         session.feed(chunk.buffer)
+                        let sampleRate = chunk.buffer.format.sampleRate
+                        let duration = sampleRate > 0 ? Double(chunk.buffer.frameLength) / sampleRate : 0
+                        if let end = endpointer.process(levelDecibels: chunk.rmsDecibels, duration: duration,
+                                                        capturedAt: chunk.capturedAt) {
+                            await MainActor.run { self?.speechEnded(end) }
+                        }
                         if chunk.capturedAt &- lastLevel > 100_000_000 {
                             lastLevel = chunk.capturedAt
                             let level = chunk.rmsDecibels
@@ -103,6 +127,7 @@ final class ListeningModel {
             }
 
             for try await update in session.updates {
+                tracker.update(update)
                 if update.isFinal {
                     finals.append(update.text)
                     if finals.count > 200 { finals.removeFirst(finals.count - 200) }
@@ -117,6 +142,23 @@ final class ListeningModel {
         } catch {
             phase = .failed("\(error)")
             stop()
+        }
+    }
+}
+
+extension ListeningModel {
+    /// The last minute or so of the call, for the answer prompt's context.
+    func recentTranscript() -> String {
+        (finals.suffix(8) + (partial.isEmpty ? [] : [partial])).joined(separator: " ")
+    }
+
+    fileprivate func speechEnded(_ end: SilenceEndpointer.EndOfSpeech) {
+        let utterance = tracker.speechEnded(end)
+        guard !utterance.isEmpty else { return }
+        lastUtterance = utterance
+        if let detection = detector.detect(utterance) {
+            lastDetection = "Question (\(detection.reason.rawValue)): \(detection.question)"
+            onQuestion?(detection.question)
         }
     }
 }

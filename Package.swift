@@ -23,7 +23,7 @@ let package = Package(
     name: "Jeeves",
     platforms: [.macOS(.v26)],
     products: [
-        .library(name: "JeevesKit", targets: ["JeevesCore", "AnthropicAPI", "KnowledgeIndex", "AudioCapture", "Transcription"]),
+        .library(name: "JeevesKit", targets: ["JeevesCore", "AnthropicAPI", "KnowledgeIndex", "Assistant", "AudioCapture", "Transcription"]),
         .executable(name: "spike-claude", targets: ["SpikeClaude"]),
         .executable(name: "spike-vec", targets: ["SpikeVec"]),
         .executable(name: "spike-tap", targets: ["SpikeTap"]),
@@ -55,6 +55,8 @@ let package = Package(
         .target(name: "JeevesCore"),
         .target(name: "AnthropicAPI", dependencies: ["JeevesCore"]),
         .target(name: "KnowledgeIndex", dependencies: ["CSQLite", "JeevesCore"]),
+        // Question -> passages -> streamed answer (M4), shared by the app and spike-kb.
+        .target(name: "Assistant", dependencies: ["KnowledgeIndex", "AnthropicAPI", "JeevesCore"]),
 
         // macOS-only modules. Sources are wrapped in `#if os(macOS)` so the package
         // still builds (as empty modules) on Linux CI.
@@ -71,11 +73,12 @@ let package = Package(
         .executableTarget(name: "SpikeSTT", dependencies: ["Transcription", "AudioCapture", "JeevesCore"]),
         .executableTarget(name: "SpikeCapture", dependencies: ["AudioCapture", "JeevesCore"]),
         .executableTarget(name: "SpikeASR", dependencies: ["Transcription", "AudioCapture", "JeevesCore"]),
-        .executableTarget(name: "SpikeKB", dependencies: ["KnowledgeIndex", "AnthropicAPI", "JeevesCore"]),
+        .executableTarget(name: "SpikeKB", dependencies: ["Assistant", "KnowledgeIndex", "AnthropicAPI", "JeevesCore"]),
 
         .testTarget(name: "JeevesCoreTests", dependencies: ["JeevesCore"]),
         .testTarget(name: "AnthropicAPITests", dependencies: ["AnthropicAPI"]),
         .testTarget(name: "KnowledgeIndexTests", dependencies: ["KnowledgeIndex", "JeevesCore"]),
+        .testTarget(name: "AssistantTests", dependencies: ["Assistant", "KnowledgeIndex", "AnthropicAPI"]),
     ],
     swiftLanguageModes: [.v6]
 )

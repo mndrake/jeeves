@@ -1,4 +1,5 @@
 import AnthropicAPI
+import Assistant
 import Foundation
 import JeevesCore
 import KnowledgeIndex
@@ -90,26 +91,31 @@ if let evalPath = flags.values["eval"] {
 }
 
 if let question = flags.values["ask"] {
-    guard let configuration = AnthropicConfiguration.fromEnvironment() else { fail("set ANTHROPIC_API_KEY") }
-    let result = try await knowledge.search(question)
-    show(result, verbose: false)
+    var configuration = AnthropicConfiguration.fromEnvironment()
+    if let base = flags.values["base-url"], let url = URL(string: base) {
+        configuration = configuration ?? AnthropicConfiguration(apiKey: "mock")
+        configuration?.baseURL = url
+    }
+    guard let configuration else { fail("set ANTHROPIC_API_KEY (or pass --base-url for the mock server)") }
     let mode = AnswerMode(rawValue: flags.values["mode"] ?? "standard") ?? .standard
-    let profile = AnswerProfile.forMode(mode)
-    let userTurn = LiveAnswerPrompt.userTurn(
-        passages: result.passages.map { (label: $0.breadcrumb, text: $0.text) },
-        transcript: "", question: question)
-    let request = profile.makeRequest(system: [SystemBlock(text: LiveAnswerPrompt.system, cacheControl: .ephemeral)],
-                                      messages: [.user(userTurn)])
-    let client = AnthropicClient(configuration: configuration)
-    var accumulator = StreamAccumulator()
-    let started = MonotonicClock.now()
-    print("\n\(profile.model):")
-    for try await event in client.stream(request, betas: profile.betas) {
-        if let text = accumulator.apply(event) {
-            FileHandle.standardOutput.write(Data(text.utf8))
+    let pipeline = AnswerPipeline(knowledge: knowledge, client: AnthropicClient(configuration: configuration), mode: mode)
+    for await event in pipeline.answer(question: question, transcript: flags.values["transcript"] ?? "") {
+        switch event {
+        case .passages(let result):
+            show(result, verbose: false)
+            print("\n\(AnswerProfile.forMode(mode).model):")
+        case .text(let text):
+            print(text, terminator: "")
+            fflush(nil)
+        case .retrying(let reason):
+            print("\n(retrying after: \(reason))")
+        case .finished(let summary):
+            print(String(format: "\n\n(first token %.0f ms, total %.0f ms, stop %@, cache read %d, cost $%.4f%@)",
+                         summary.firstTokenMs ?? 0, summary.totalMs, summary.stopReason ?? "-",
+                         summary.usage.cacheReadInputTokens ?? 0, summary.costUSD ?? 0,
+                         summary.note.map { ", " + $0 } ?? ""))
+        case .failed(let message):
+            fail(message)
         }
     }
-    let ttft = accumulator.firstTextAt.map { MonotonicClock.milliseconds(from: started, to: $0) } ?? 0
-    print(String(format: "\n\n(first token %.0f ms, stop %@, cache read %d)", ttft, accumulator.stopReason ?? "-",
-                 accumulator.usage.cacheReadInputTokens ?? 0))
 }
