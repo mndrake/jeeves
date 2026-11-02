@@ -363,3 +363,43 @@ absence, as designed.
 - **Alias table** in JeevesCore rewrites observed mishearings on word boundaries, never
   single common words ("cloud" alone stays "cloud").
 - Decision rules for the engine and the second pass are in `docs/M2.md`.
+
+## 2026-11-02 - M3 embedding shoot-out: ship potion-base-8M hybrid, bge-small next
+
+Corpus: both Anthropic doc presets (about 18,000 passages). Questions: the 80 spoken-style
+questions in `eval/retrieval/questions.tsv` (40 written before tuning, 40 held out).
+Recall is page recall after the same per-section/per-page diversification the app uses.
+Python with sentence-transformers on a 4-core Linux CPU, except the Swift row.
+
+| Embedder | Size | Vector r@1 / r@3 / r@6 | Hybrid (RRF with BM25) r@1 / r@3 / r@6 |
+|---|---|---|---|
+| none (BM25 only) | - | - | 0.61 / 0.79 / 0.90 |
+| potion-base-8M (static, 256 d) | 30 MB | 0.64 / 0.82 / 0.90 | 0.66 / 0.88 / 0.90 |
+| potion-base-8M, Swift release build | 30 MB | - | 0.66 / 0.88 / 0.90, search p50 20 ms |
+| all-MiniLM-L6-v2 (384 d) | 90 MB | 0.68 / 0.88 / 0.90 | 0.65 / 0.88 / 0.94 |
+| snowflake-arctic-embed-xs (384 d) | 90 MB | 0.75 / 0.90 / 0.94 | 0.65 / 0.88 / 0.95 |
+| snowflake-arctic-embed-s (384 d) | 130 MB | 0.71 / 0.90 / 0.95 | 0.70 / 0.90 / 0.99 |
+| **bge-small-en-v1.5** (384 d) | 130 MB | **0.75 / 0.94 / 0.97** | 0.72 / 0.93 / 0.96 |
+
+e5-small-v2 did not finish (the run hit its time limit). potion-retrieval-32M scored
+below potion-base-8M on the first 40 questions (hybrid r@3 0.88 vs 0.90), so it was dropped.
+
+Decision:
+
+- **Ship potion-base-8M hybrid now (v0.4.0).** It clears the 0.85 recall@3 target
+  (0.79 to 0.88; held-out 0.75 to 0.85) and runs in plain Swift. Each passage is a table
+  lookup plus a mean, about 1 ms on a CPU, so both presets index with vectors in about
+  35 s and there is no neural runtime to ship. The Swift tokenizer and embedder match
+  the Python reference exactly (0 token mismatches on 3,015 passages, max vector
+  difference 2e-7).
+- **bge-small-en-v1.5 is the upgrade candidate.** It gets 0.94 recall@3 on its own,
+  which is 5 more questions in 80 than the shipped hybrid. The cost is a transformer
+  forward pass for every passage and every query. On this CPU that took about
+  28 minutes for the corpus and 2.7 ms per query. On the Air it needs Core ML (or MLX),
+  which can only be built and timed on the Mac. Next step: convert it to Core ML, time
+  indexing and query embedding on the Air, and switch the default if a full re-embed
+  stays under about 3 minutes. The index already rebuilds vectors from stored text
+  whenever the model identifier changes, so switching needs no re-fetch.
+- For the transformer models, equal-weight RRF with BM25 does not improve recall@3 over
+  vector search alone. If bge-small ships, either weight the vector list higher or let
+  BM25 add only the exact matches that vector search misses.

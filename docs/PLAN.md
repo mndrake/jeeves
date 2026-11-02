@@ -196,7 +196,7 @@ Estimates assume one developer, mostly full time.
 - Shoot-out `SpeechAnalyzer` vs FluidAudio on 30 min of your recorded calls, with a read-aloud test of Anthropic/API terminology.
 - Exit: final-segment latency under 600 ms; domain-term accuracy acceptable.
 
-### M3 - Knowledge base (2-3 weeks) -> PRD 04, PRD 05 (retrieval) - first cut in v0.3.0 (lexical search, Markdown/llms.txt/folders); see `docs/M3-M4.md`
+### M3 - Knowledge base (2-3 weeks) -> PRD 04, PRD 05 (retrieval) - first cut in v0.3.0 (lexical search, Markdown/llms.txt/folders), hybrid search with potion-base-8M in v0.4.0; see `docs/M3-M4.md`
 - Markdown folder indexing; `llms.txt` site ingestion with `.md` pages; generic URL fallback; incremental refresh.
 - Ingest-time contextualization and synthetic questions via Haiku 5.5 Batches.
 - Embedding model shoot-out; hybrid search; debug search window.
