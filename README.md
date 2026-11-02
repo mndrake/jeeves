@@ -27,8 +27,9 @@ Planning documents:
 
 ## Status
 
-Milestone M0 (spikes and skeleton) is code complete; Mac measurements are pending.
-See `docs/M0.md` for the runbook and results table.
+Milestone M0 (spikes and skeleton) is complete: audio capture, on-device transcription,
+local search and Claude answers all meet the latency plan on the MacBook Air. See
+`docs/M0.md` for results and `docs/DECISIONS.md` for what they decided. Next: M1.
 
 ## Download
 

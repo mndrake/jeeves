@@ -202,3 +202,21 @@ fused) 6.4 ms p50 and 8.2 ms p95; lexical 3.2 / 5.0 ms; vector 3.3 / 3.3 ms; ins
 26,815 chunks/s; 25.5 MB on disk. About 3.5 times faster than the Linux container, with
 sqlite-vec's NEON path. Retrieval uses under a tenth of its 100 ms budget, so exact
 (brute-force) vector search stays; no approximate index is needed at this corpus size.
+
+## 2026-11-02 - M0 complete
+
+The menu bar app (v0.0.3) captured a Meet call through Chrome's processes and showed a
+live transcript, with final lag p50 823 ms and p95 1,039 ms (n=6), matching the spike.
+Every M0 exit criterion is met or resolved by a recorded decision.
+
+Carried into M1 and later:
+- M1: re-scan the browser's processes and rebuild the tap when Core Audio's process list
+  changes (new tab or call); recover from output device changes.
+- M2: compare SpeechAnalyzer with FluidAudio/Parakeet on product-name accuracy ("Claude"
+  heard as "cloud"); measure how often the partial at 400 ms of silence differs from the
+  final; try accurate mode.
+- M3: alias table for known mishearings in the query builder.
+- Answer quality of Haiku 5.5 versus Sonnet 5.5 is not yet compared (answers saved in the
+  user's `claude.json`).
+- Fixed after the app run: transcript segments carried a leading space, which indented
+  every line after the first.

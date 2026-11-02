@@ -182,7 +182,7 @@ Network: one streaming request per question; nothing else during a call.
 Each milestone ends with something you can run on the Air during a real call.
 Estimates assume one developer, mostly full time.
 
-### M0 - Spike and skeleton (1 week) - code complete, Mac measurements pending; see `docs/M0.md`
+### M0 - Spike and skeleton (1 week) - complete 2026-11-02; results in `docs/M0.md`
 - Xcode project, menu bar item, entitlements, `NSAudioCaptureUsageDescription`.
 - Four throwaway demos on the target machine: process tap on Chrome/Safari captures Meet audio; `SpeechAnalyzer` streams text; `sqlite-vec` loads and queries; a Swift `URLSession` SSE client streams a Sonnet 5.5 answer with a cached prefix (verify `cache_read_input_tokens` > 0 on the second call).
 - Exit: numbers for each in `docs/DECISIONS.md`.

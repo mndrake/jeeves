@@ -97,7 +97,8 @@ public final class SpeechAnalyzerSession: @unchecked Sendable {
                 for try await result in transcriber.results {
                     let range = result.range
                     continuation.yield(TranscriptUpdate(
-                        text: String(result.text.characters),
+                        // Segments after the first start with a space; consumers join segments themselves.
+                        text: String(result.text.characters).trimmingCharacters(in: .whitespacesAndNewlines),
                         isFinal: result.isFinal,
                         audioStart: range.start.seconds.isFinite ? range.start.seconds : 0,
                         audioEnd: range.end.seconds.isFinite ? range.end.seconds : 0,
