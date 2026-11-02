@@ -165,3 +165,32 @@ above -45 dBFS): Jeeves calls `SpeechAnalyzer.finalize(through:)` at each detect
   ", to..............." "of..") and more mishearings ("SCO sessions start in on the
   boat"). This confirms the decision: shorter forced finals trade accuracy for speed,
   and the partial-text trigger gets the speed without touching the engine's finals.
+
+## 2026-11-02 - M0 Claude latency (spike-claude v0.0.3, home network)
+
+Eight live-answer requests per mode with the real system prompt (1,451 tokens, cached)
+and six passages; the first request per model writes the cache, so the statistics
+cover the seven warm requests.
+
+| Mode | Model and settings | First answer token p50 / p95 | Total p50 | Cache hits | Cost (8 requests) |
+|---|---|---|---|---|---|
+| `standard` | Sonnet 5.5, `between_tools`, effort low | 718 / 843 ms | 1,639 ms | 7/7 | $0.0235 |
+| `standard-adaptive` | Sonnet 5.5, adaptive, effort low | 787 / 1,335 ms | 1,563 ms | 7/7 | $0.0236 |
+| `fast` | Haiku 5.5, thinking disabled, effort low | 613 / 945 ms | 1,160 ms | 7/7 | $0.0011 |
+| `deep` | Opus 5.5, adaptive, effort medium | 2,178 / 2,969 ms | 3,195 ms | 7/7 | $0.0657 |
+
+- **Default live answer: Sonnet 5.5 with `thinking: between_tools`, effort low.** Its
+  p95 (843 ms) meets the 900 ms target. Adaptive thinking at low effort, which the API
+  guide prefers in general, had a similar median but a much worse tail (p95 1,335 ms)
+  at the same cost, because on some questions it chose to think first.
+- **Haiku 5.5 stays the opt-in fast mode.** Its median is only about 100 ms faster
+  and its p95 is slower than Sonnet's, but it costs about 20 times less. Answer quality
+  has not been compared yet; the answers are in the user's `claude.json`.
+- **Opus 5.5 stays on demand only** (hotkey or "deeper"): first token at 2.2 s p50.
+- Prompt caching works as designed: every warm request read the 1,451-token prefix.
+- End-to-end estimate for the default path: about 400 ms silence trigger, about 20 ms
+  retrieval, and 718 ms (p95 843 ms) to the first answer token, so roughly 1.1-1.3 s
+  from the end of the question to the first answer word on screen. That is inside the
+  plan's 2.0 s ceiling; passages appear at about 0.45 s.
+- Cost: about $0.003 per Sonnet answer, so a one-hour call with 40 questions is about
+  $0.12, below the plan's $0.20 estimate.

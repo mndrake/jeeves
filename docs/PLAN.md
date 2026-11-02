@@ -118,7 +118,7 @@ Interview: the AI model is not local; use Claude with Haiku/Sonnet/Opus chosen p
 
 | Task | Model | Settings | Why |
 |---|---|---|---|
-| Live answer (default) | **Claude Sonnet 5.5** `claude-sonnet-5-5` | streaming; `thinking: {type: "between_tools"}` (thinking off for this call); `output_config.effort: "low"`; `max_tokens` ~300. M0 measures this against adaptive thinking at low effort, which the API guide prefers | Best speed/quality for grounded synthesis; time-to-first-token is what matters |
+| Live answer (default) | **Claude Sonnet 5.5** `claude-sonnet-5-5` | streaming; `thinking: {type: "between_tools"}` (thinking off for this call); `output_config.effort: "low"`; `max_tokens` ~300. M0 confirmed it: first token 718 ms p50, 843 ms p95; adaptive at low effort had p95 1,335 ms | Best speed/quality for grounded synthesis; time-to-first-token is what matters |
 | Live answer, "fast" mode | Claude Haiku 5.5 `claude-haiku-5-5` | streaming; `thinking: {type: "disabled"}`; effort `low` | Lowest latency and cost; good enough when passages already carry the answer |
 | "Deeper" answer (hotkey / follow-up) | Claude Opus 5.5 `claude-opus-5-5` | streaming; effort `low` or `medium` (thinking cannot be disabled on Opus 5.5) | Hard multi-document questions, worth 2-4 s |
 | Ingest-time contextualization and synthetic questions | Claude Haiku 5.5 via Message Batches | non-streaming, effort `low`, 1-hour prompt cache on the full document | Thousands of chunks, half price, no latency constraint |
