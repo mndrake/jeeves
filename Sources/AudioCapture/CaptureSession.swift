@@ -10,6 +10,7 @@ public enum CaptureStatus: Sendable, Equatable, CustomStringConvertible {
     case starting
     case waitingForBrowser(Browser)
     case capturing(processes: Int, outputDevice: String)
+    // (While capturing, the tap delivers audio only when a tapped process plays.)
     case reconnecting(reason: String)
     case stopped
 
@@ -36,6 +37,10 @@ public struct CaptureStatistics: Sendable {
     public var restarts: [RestartLog.Entry] { restartLog.entries }
     /// From the first tap starting to its first audio (nil until audio arrives).
     public var startupMs: Double?
+    /// Whether Core Audio reports a captured process as playing right now.
+    public var sourcePlaying = false
+    /// Pauses in the browser's output (audio resuming after more than 250 ms).
+    public var pauses = 0
     public var retargets = 0
     public var retargetFailures = 0
     /// Whether in-place retargeting worked on this Mac (nil until first tried).
@@ -78,8 +83,10 @@ public struct CaptureStatistics: Sendable {
 ///   process is playing. Watched through Core Audio's process list plus a 1 s poll.
 /// - The default output device changes (AirPods connect or disconnect): the tap's
 ///   aggregate device is rebuilt on the new device.
-/// - No first audio within `watchdog.startupTimeout`, or IO stops arriving for
-///   `watchdog.stallTimeout` once it has flowed: rebuilt.
+/// - IO is silent while Core Audio says a tapped process is playing: rebuilt after
+///   `watchdog.startupTimeout` (no audio yet) or `watchdog.stallTimeout` (audio had
+///   flowed). Silence while nothing plays (paused video, quiet call) is normal: a tap
+///   only delivers IO callbacks while a tapped process plays.
 /// - The browser quits: capture pauses and resumes when it plays audio again.
 /// Failed rebuilds retry with exponential backoff. Audio lost during a rebuild is
 /// replaced with silence so the consumer's timeline stays aligned with real time.
@@ -99,6 +106,8 @@ public final class CaptureSession: @unchecked Sendable {
     private var tap: ProcessTap?
     private var tapped: Set<AudioObjectID>?
     private var tapStartedAt: UInt64 = 0
+    /// When Core Audio first reported a captured process as playing, continuously; nil if none is.
+    private var playingSince: UInt64?
     private var outputDeviceName = ""
     private var canRetarget = true
     private var backoff = ExponentialBackoff()
@@ -116,6 +125,7 @@ public final class CaptureSession: @unchecked Sendable {
         var continuation: AsyncStream<CaptureEvent>.Continuation?
         var aligner = TimelineAligner()
         var afterRestart = false
+        var lastChunkAt: UInt64?
         var firstTapStartedAt: UInt64?
         var stats = CaptureStatistics()
     }
@@ -183,39 +193,64 @@ public final class CaptureSession: @unchecked Sendable {
 
     private func tick() {
         guard running else { return }
+        let processes = try? AudioProcessInfo.all()
+        updatePlaying(processes)
         if let tap {
             let stats = tap.stats
             let verdict = watchdog.check(now: MonotonicClock.now(), tapStartedAt: tapStartedAt,
                                          firstCallbackAt: stats.firstCallbackAt == 0 ? nil : stats.firstCallbackAt,
-                                         lastCallbackAt: stats.lastCallbackAt == 0 ? nil : stats.lastCallbackAt)
+                                         lastCallbackAt: stats.lastCallbackAt == 0 ? nil : stats.lastCallbackAt,
+                                         sourcePlayingSince: playingSince)
             switch verdict {
             case .healthy:
                 break
             case .slowStart:
-                restart(reason: "no audio within \(String(format: "%g", watchdog.startupTimeout)) s of starting the tap")
+                restart(reason: "no audio within \(String(format: "%g", watchdog.startupTimeout)) s although the browser is playing")
                 return
             case .stalled:
-                restart(reason: "audio IO stalled for \(String(format: "%g", watchdog.stallTimeout)) s")
+                restart(reason: "audio IO stalled for \(String(format: "%g", watchdog.stallTimeout)) s while playing")
                 return
             }
         }
-        evaluate()
+        evaluate(processes)
     }
 
-    private func evaluate() {
+    /// Tracks whether what the tap covers is playing, from Core Audio's process flags.
+    private func updatePlaying(_ processes: [AudioProcessInfo]?) {
+        guard let processes else { return }
+        let playing: Bool
+        switch strategy {
+        case .processes:
+            let covered = tapped ?? []
+            playing = processes.contains { covered.contains($0.objectID) && $0.isRunningOutput }
+        case .bundleIDs:
+            playing = processes.contains { browser.owns($0) && $0.isRunningOutput }
+        case .system:
+            let me = AudioProcessInfo.current()
+            playing = processes.contains { $0.isRunningOutput && $0.objectID != me }
+        }
+        if playing {
+            if playingSince == nil { playingSince = MonotonicClock.now() }
+        } else {
+            playingSince = nil
+        }
+        shared.withLock { $0.stats.sourcePlaying = playing }
+    }
+
+    private func evaluate(_ processes: [AudioProcessInfo]? = nil) {
         guard running, !retryScheduled else { return }
         switch strategy {
         case .processes:
-            evaluateProcesses()
+            evaluateProcesses(processes)
         case .system, .bundleIDs:
             if tap == nil { startTap(restarting: false) }
         }
     }
 
-    private func evaluateProcesses() {
+    private func evaluateProcesses(_ known: [AudioProcessInfo]? = nil) {
         let processes: [AudioProcessInfo]
         do {
-            processes = try AudioProcessInfo.all()
+            processes = try known ?? AudioProcessInfo.all()
         } catch {
             publish(.reconnecting(reason: "cannot read Core Audio's process list: \(error)"))
             scheduleRetry()
@@ -244,7 +279,7 @@ public final class CaptureSession: @unchecked Sendable {
                     $0.stats.retargetFailures += 1
                     $0.stats.retargetSupported = false
                 }
-                evaluateProcesses()  // decide again without retargeting
+                evaluateProcesses(processes)  // decide again without retargetinging
             }
         case .rebuild(let set, let reason):
             tapped = set
@@ -273,6 +308,7 @@ public final class CaptureSession: @unchecked Sendable {
             try tap.start { [weak self] chunk in self?.handle(chunk) }
             self.tap = tap
             tapStartedAt = MonotonicClock.now()
+            playingSince = playingSince.map { _ in tapStartedAt }  // re-time the allowance for the new tap
             outputDeviceName = (try? AudioProperty.defaultOutputDevice().name) ?? "unknown device"
             backoff.reset()
             let startedAt = tapStartedAt
@@ -369,8 +405,13 @@ public final class CaptureSession: @unchecked Sendable {
     private func handle(_ chunk: AudioChunk) {
         let duration = Double(chunk.buffer.frameLength) / outputFormat.sampleRate
         let (fill, continuation) = shared.withLock { (state: inout Shared) -> (Double, AsyncStream<CaptureEvent>.Continuation?) in
+            // A tap is silent while nothing plays, so audio resuming after more than
+            // 250 ms is a pause, filled with silence like a restart gap.
+            let resumed = state.lastChunkAt.map { MonotonicClock.milliseconds(from: $0, to: chunk.capturedAt) > 250 } ?? false
+            if resumed && !state.afterRestart { state.stats.pauses += 1 }
+            state.lastChunkAt = chunk.capturedAt
             let fill = state.aligner.silenceBefore(chunkDuration: duration, capturedAt: chunk.capturedAt,
-                                                   afterRestart: state.afterRestart)
+                                                   afterRestart: state.afterRestart || resumed)
             state.afterRestart = false
             state.stats.restartLog.audioArrived(at: chunk.capturedAt)
             if state.stats.startupMs == nil, let started = state.firstTapStartedAt {

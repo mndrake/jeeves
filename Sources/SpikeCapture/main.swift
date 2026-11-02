@@ -5,9 +5,10 @@
 // Runs one CaptureSession for the whole period and prints every status change as it
 // happens (waiting, capturing, reconnecting and why). A progress line every
 // --report-every seconds shows audio totals, gaps, restarts, CPU and memory. The summary
-// checks the M1 exit criteria (docs/M1.md): no gaps inside a tap, every restart back
-// within 2 s, under 5% of one core, memory flat, and the audio timeline covering the
-// whole run.
+// checks the M1 exit criteria (docs/M1.md): no gaps inside a tap, every outage back
+// within 2 s, under 5% of one core, and memory flat. Coverage (audio emitted versus wall
+// time) is reported but not graded: a tap is silent while the browser plays nothing,
+// and pauses longer than 5 s are not filled.
 //
 // Exercise it during a run: connect and disconnect AirPods, open a new Meet tab, quit
 // and reopen Chrome, or start this before Chrome is running.
@@ -89,9 +90,9 @@ while elapsed < total {
     let cpu = (cpuSeconds() - startCPU) / max(elapsed, 0.001) * 100
     let memory = peakMemoryMB()
     if memoryAfterWarmup == nil, elapsed >= min(60, total) { memoryAfterWarmup = memory }
-    print(String(format: "  %@  audio %7.1f s  filled %5.2f s  callbacks %8ld  gaps %ld  audible %7ld  restarts %ld  retargets %ld  cpu %4.1f%%  mem %5.1f MB",
-                 clock(elapsed), s.outputSeconds, s.silenceFilledSeconds, s.callbacks, s.discontinuities,
-                 s.audibleChunks, s.restarts.count, s.retargets, cpu, memory))
+    print(String(format: "  %@  %@  audio %7.1f s  filled %5.2f s  callbacks %8ld  gaps %ld  audible %7ld  restarts %ld  retargets %ld  cpu %4.1f%%  mem %5.1f MB",
+                 clock(elapsed), s.sourcePlaying ? "playing" : "idle   ", s.outputSeconds, s.silenceFilledSeconds,
+                 s.callbacks, s.discontinuities, s.audibleChunks, s.restarts.count, s.retargets, cpu, memory))
 }
 
 session.stop()
@@ -108,7 +109,7 @@ func check(_ ok: Bool) -> String { ok ? "PASS" : "FAIL" }
 print("""
 
 summary  browser=\(browser.rawValue) strategy=\(strategy.rawValue) wall=\(clock(wall))
-  audio        \(String(format: "%.1f", s.outputSeconds)) s emitted (\(String(format: "%.1f", s.silenceFilledSeconds)) s of it silence filled during restarts), coverage \(String(format: "%.1f", coverage * 100))%
+  audio        \(String(format: "%.1f", s.outputSeconds)) s emitted (\(String(format: "%.1f", s.silenceFilledSeconds)) s of it silence filled for restarts and \(s.pauses) pauses), coverage \(String(format: "%.1f", coverage * 100))% of wall time
   input        \(s.inputSampleRate) Hz x \(s.inputChannels) ch, \(s.callbacks) callbacks (\(s.emptyCallbacks) empty), \(s.audibleChunks) audible chunks
   retarget     \(s.retargets) in place, \(s.retargetFailures) refused; supported: \(s.retargetSupported.map { $0 ? "yes" : "no" } ?? "not needed")
   startup      \(s.startupMs.map { String(format: "first audio %.0f ms after the first tap started", $0) } ?? "no audio received")
@@ -126,7 +127,6 @@ print("""
     \(check(worstOutage <= 2_000 && s.restartLog.unrecovered == 0))  every outage back within 2 s
     \(check(cpu < 5))  CPU under 5% of one core (\(String(format: "%.1f", cpu))%)
     \(check(memoryEnd - (memoryAfterWarmup ?? memoryEnd) < 20))  memory flat after the first minute (peak \(String(format: "%.1f", memoryAfterWarmup ?? 0)) -> \(String(format: "%.1f", memoryEnd)) MB)
-    \(check(coverage > 0.98 || s.callbacks == 0))  audio timeline covers the run (\(String(format: "%.1f", coverage * 100))%; low if the browser was not running)
 """)
 if let writeError { log("WAV write failed: \(writeError)") }
 #else

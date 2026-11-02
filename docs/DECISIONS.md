@@ -291,3 +291,20 @@ begin delivering, so v0.1.1 gives new taps 5 s (`IOWatchdog.startupTimeout`) and
 1.5 s only for taps that have delivered audio. Restarts that are themselves restarted
 before audio returns are now one outage, timed from the first restart. `spike-capture`
 reports time to first audio so the real startup figure gets measured.
+
+## 2026-11-02 - M1 test 2: taps are silent while nothing plays; retargeting works (v0.1.0)
+
+Started `spike-capture` before Chrome, then opened Chrome and played a video:
+
+- **In-place retargeting works** on macOS 26 (`kAudioTapPropertyDescription` accepted):
+  1 retarget, 0 refused, the tap going from 1 to 3 Chrome processes within a second.
+- The tap was restarted five times between 00:15 and 00:23, each after 1.5-2 s with no IO
+  callbacks; audio arrived 510 ms after the last restart and then ran 2.5 minutes with 0
+  gaps. Together with test 1 (three restarts before the video played), this shows a tap
+  delivers IO callbacks only while a tapped process is playing. Silence is normal.
+- **Decision:** the watchdog acts only while Core Audio reports a tapped process as
+  playing (`kAudioProcessPropertyIsRunningOutput`, polled each second): 3 s for a tap with
+  no audio yet, 1.5 s once audio has flowed, counted from when playing began. Audio
+  resuming after more than 250 ms counts as a pause and is preceded by silence (up to
+  5 s) to keep timestamps aligned. Coverage is reported, not graded. Shipped in v0.1.2;
+  v0.1.1's 5 s startup allowance would still have restarted silent taps.

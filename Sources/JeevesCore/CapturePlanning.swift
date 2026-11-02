@@ -169,10 +169,13 @@ public struct TimelineAligner: Sendable {
 
 /// Decides when a tap has stopped delivering audio.
 ///
-/// A new tap can take a while to deliver its first audio (on the MacBook Air in M1 test 1,
-/// the first two attempts were restarted after 1.5 s and the third delivered audio after
-/// 462 ms), so it gets `startupTimeout`. Once audio has flowed, silence from the IO
-/// callbacks for `stallTimeout` means the tap is broken.
+/// A tap delivers IO callbacks only while a tapped process is playing. M1 tests 1 and 2
+/// on the MacBook Air: before the video started, every tap was silent and an earlier
+/// watchdog restarted it every 2 s; once playback began, audio arrived within 462-510 ms.
+/// So silence is a fault only while Core Audio reports the source as playing
+/// (`sourcePlayingSince`). Then a tap with no audio yet gets `startupTimeout`, and one
+/// that has delivered audio gets `stallTimeout`, counted from when playing began, the
+/// tap started, or the last callback, whichever is latest.
 public struct IOWatchdog: Sendable {
     public enum Verdict: Equatable, Sendable {
         case healthy
@@ -185,16 +188,22 @@ public struct IOWatchdog: Sendable {
     public var startupTimeout: Double
     public var stallTimeout: Double
 
-    public init(startupTimeout: Double = 5, stallTimeout: Double = 1.5) {
+    public init(startupTimeout: Double = 3, stallTimeout: Double = 1.5) {
         self.startupTimeout = startupTimeout
         self.stallTimeout = stallTimeout
     }
 
-    public func check(now: UInt64, tapStartedAt: UInt64, firstCallbackAt: UInt64?, lastCallbackAt: UInt64?) -> Verdict {
-        guard firstCallbackAt != nil, let last = lastCallbackAt else {
-            return MonotonicClock.milliseconds(from: tapStartedAt, to: now) > startupTimeout * 1000 ? .slowStart : .healthy
-        }
-        return MonotonicClock.milliseconds(from: last, to: now) > stallTimeout * 1000 ? .stalled : .healthy
+    /// - Parameter sourcePlayingSince: when Core Audio first reported a tapped process as
+    ///   playing, continuously up to now; nil if nothing is playing.
+    public func check(now: UInt64, tapStartedAt: UInt64, firstCallbackAt: UInt64?, lastCallbackAt: UInt64?,
+                      sourcePlayingSince: UInt64?) -> Verdict {
+        guard let playingSince = sourcePlayingSince else { return .healthy }  // silence is expected
+        var reference = max(tapStartedAt, playingSince)
+        if let lastCallbackAt { reference = max(reference, lastCallbackAt) }
+        let started = firstCallbackAt != nil
+        let limit = started ? stallTimeout : startupTimeout
+        guard MonotonicClock.milliseconds(from: reference, to: now) > limit * 1000 else { return .healthy }
+        return started ? .stalled : .slowStart
     }
 }
 

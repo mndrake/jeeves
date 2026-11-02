@@ -97,17 +97,31 @@ import Testing
 @Suite struct IOWatchdogTests {
     let s: UInt64 = 1_000_000_000
 
-    @Test func newTapsGetTheStartupAllowance() {
-        let watchdog = IOWatchdog(startupTimeout: 5, stallTimeout: 1.5)
-        // M1 test 1: no audio after 2 s used to trigger a restart; now it is still starting.
-        #expect(watchdog.check(now: 12 * s, tapStartedAt: 10 * s, firstCallbackAt: nil, lastCallbackAt: nil) == .healthy)
-        #expect(watchdog.check(now: 16 * s, tapStartedAt: 10 * s, firstCallbackAt: nil, lastCallbackAt: nil) == .slowStart)
+    @Test func silenceIsNotAFaultWhileNothingPlays() {
+        // M1 tests 1 and 2: the browser was idle before the video started; no restarts now.
+        let watchdog = IOWatchdog(startupTimeout: 3, stallTimeout: 1.5)
+        #expect(watchdog.check(now: 70 * s, tapStartedAt: 10 * s, firstCallbackAt: nil, lastCallbackAt: nil,
+                               sourcePlayingSince: nil) == .healthy)
+        // Paused after playing for a while: still healthy.
+        #expect(watchdog.check(now: 70 * s, tapStartedAt: 10 * s, firstCallbackAt: 11 * s, lastCallbackAt: 30 * s,
+                               sourcePlayingSince: nil) == .healthy)
     }
 
-    @Test func flowingTapsUseTheStallTimeout() {
-        let watchdog = IOWatchdog(startupTimeout: 5, stallTimeout: 1.5)
-        #expect(watchdog.check(now: 31 * s, tapStartedAt: 10 * s, firstCallbackAt: 11 * s, lastCallbackAt: 30 * s) == .healthy)
-        #expect(watchdog.check(now: 32 * s, tapStartedAt: 10 * s, firstCallbackAt: 11 * s, lastCallbackAt: 30 * s) == .stalled)
+    @Test func startupAllowanceCountsFromWhenPlayingBegan() {
+        let watchdog = IOWatchdog(startupTimeout: 3, stallTimeout: 1.5)
+        #expect(watchdog.check(now: 62 * s, tapStartedAt: 10 * s, firstCallbackAt: nil, lastCallbackAt: nil,
+                               sourcePlayingSince: 60 * s) == .healthy)
+        #expect(watchdog.check(now: 64 * s, tapStartedAt: 10 * s, firstCallbackAt: nil, lastCallbackAt: nil,
+                               sourcePlayingSince: 60 * s) == .slowStart)
+    }
+
+    @Test func playingWithoutCallbacksIsAStall() {
+        let watchdog = IOWatchdog(startupTimeout: 3, stallTimeout: 1.5)
+        // Audio flowed until 30 s; playback resumed at 40 s after a pause.
+        #expect(watchdog.check(now: 41 * s, tapStartedAt: 10 * s, firstCallbackAt: 11 * s, lastCallbackAt: 30 * s,
+                               sourcePlayingSince: 40 * s) == .healthy)
+        #expect(watchdog.check(now: 42 * s, tapStartedAt: 10 * s, firstCallbackAt: 11 * s, lastCallbackAt: 30 * s,
+                               sourcePlayingSince: 40 * s) == .stalled)
     }
 }
 
