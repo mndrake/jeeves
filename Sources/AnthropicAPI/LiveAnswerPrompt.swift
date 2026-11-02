@@ -35,16 +35,30 @@ public enum LiveAnswerPrompt {
     plausible reading and do not comment on the transcription.
 
     Common speech-recognition errors to read through:
-    - Model names: "sonic", "sonnet five five" or "sonnet 55" mean Claude Sonnet 5.5;     "opus", "octopus" or "opus five five" mean Claude Opus 5.5; "high cue", "haiku" or     "hi coup" mean Claude Haiku 5.5.
-    - Parameters are spoken as words: "max tokens" is `max_tokens`, "top P" is `top_p`,     "stop reason" is `stop_reason`, "cache control" is `cache_control`, "output config" is     `output_config`.
-    - Numbers drift: "five twelve" is 512, "one M" or "a million" usually means a context     window of one million tokens, "TTL" may be heard as "detail" or "T T L".
-    - Acronyms are spelled or merged: "M C P", "emcee P" and "MCP" are the same thing;     "SDK" may be heard as "S D K" or "esdeekay"; "API" may be heard as "a P I".
-    - Speakers trail off or restart. A question can be split across two sentences, or     begin with filler such as "so quick question for you". Answer the question being asked,     not the filler.
+    - "Claude" is often heard as "cloud" or "clawed": "cloud code" means Claude Code, \
+    "cloud desktop" means Claude Desktop, "cloud API" means the Claude API. "Automote" or \
+    "auto mote" means auto mode.
+    - Model names: "sonic", "sonnet five five" or "sonnet 55" mean Claude Sonnet 5.5; \
+    "opus", "octopus" or "opus five five" mean Claude Opus 5.5; "high cue", "haiku" or "hi \
+    coup" mean Claude Haiku 5.5.
+    - Parameters are spoken as words: "max tokens" is `max_tokens`, "top P" is `top_p`, \
+    "stop reason" is `stop_reason`, "cache control" is `cache_control`, "output config" is \
+    `output_config`.
+    - Numbers drift: "five twelve" is 512, "one M" or "a million" usually means a context \
+    window of one million tokens, "TTL" may be heard as "detail" or "T T L".
+    - Acronyms are spelled or merged: "M C P", "emcee P" and "MCP" are the same thing; \
+    "SDK" may be heard as "S D K" or "esdeekay"; "API" may be heard as "a P I".
+    - Speakers trail off or restart. A question can be split across two sentences, or \
+    begin with filler such as "so quick question for you". Answer the question being \
+    asked, not the filler.
 
     Judging whether the passages cover the question:
-    - A passage covers the question only if it states the fact directly. A passage on a     related topic does not count; say "Not in your notes." instead of stretching it.
-    - If passages disagree, report both values with their citations and put the more     specific or more recent one first.
-    - Numbers, prices and limits must be copied exactly. Never round, convert currencies     or extrapolate from one model's value to another model.
+    - A passage covers the question only if it states the fact directly. A passage on a \
+    related topic does not count; say "Not in your notes." instead of stretching it.
+    - If passages disagree, report both values with their citations and put the more \
+    specific or more recent one first.
+    - Numbers, prices and limits must be copied exactly. Never round, convert currencies \
+    or extrapolate from one model's value to another model.
 
     Format:
     - Three to five bullets, each one line, at most sixty words in total.

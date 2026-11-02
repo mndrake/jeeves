@@ -108,3 +108,28 @@ has ended before it finalizes.
   SpeechAnalyzer over FluidAudio.
 - `spike-stt` prints "downloading speech assets" even when the assets are already
   installed (startup was 130 ms). Cosmetic; fix with an `AssetInventory.status` check.
+
+## 2026-11-02 - Finalize experiment, baseline run (v0.0.3)
+
+Reading the Claude Code best-practices page aloud from a second device, 60 seconds,
+fast mode, `pids`, no forced finalization:
+
+| Measurement | Result |
+|---|---|
+| Speech end to final, p50 (n=9) | 1,117 ms |
+| Final lag p50 / p95 (n=10) | 973 / 1,125 ms |
+| Partial lag p50 / p95 (n=196) | 22 / 28 ms |
+| Speech ends | 13 detected, 9 matched, 4 merged into longer finals |
+
+- The baseline confirms about 1.1 s from the speaker stopping to final text, versus
+  400 ms for the partial-text trigger. The p95 (1,982 ms) is overstated: v0.0.3 timed
+  every pause a final covered, so one final that swallowed two pauses counted the
+  earlier one at 2,443 ms. Fixed on main: only the last pause inside a final is timed.
+- **Domain terms are misheard despite contextual strings.** "Claude Code" came out as
+  "cloud code" every time, "auto mode" as "automote", and some sentences were garbled
+  ("rescued court runs"). Consequences: the live-answer prompt now lists these
+  mishearings; M3's query builder should map known mishearings to canonical terms
+  before searching (a small alias table derived from the index vocabulary); and the M2
+  shoot-out should weigh domain-term accuracy, where FluidAudio/Parakeet may do better.
+- The live-answer prompt had runs of spaces inside some sentences, from line
+  continuations lost in an earlier edit. Rewritten, with a test that guards it.
