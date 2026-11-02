@@ -1,6 +1,10 @@
 // M1 soak and resilience test for supervised capture (CaptureSession).
 //
-//   spike-capture [--browser chrome] [--strategy pids] [--minutes 60] [--report-every 60] [--wav out.wav]
+//   spike-capture [--browser chrome] [--strategy pids] [--clock output|tap] [--minutes 60] [--report-every 60] [--wav out.wav]
+//
+// --clock tap builds the tap's aggregate device without an output device (Apple's sample
+// layout), so output-device changes may need no rebuild; compare with the default
+// --clock output during the AirPods test.
 //
 // Runs one CaptureSession for the whole period and prints every status change as it
 // happens (waiting, capturing, reconnecting and why). A progress line every
@@ -20,12 +24,13 @@ import JeevesCore
 
 let flags = CommandLineFlags(switches: ["help"])
 if flags.has("help") {
-    print("usage: spike-capture [--browser chrome|safari|edge|arc|firefox] [--strategy pids|system|bundle] [--minutes 60] [--report-every 60] [--wav out.wav]")
+    print("usage: spike-capture [--browser chrome|safari|edge|arc|firefox] [--strategy pids|system|bundle] [--clock output|tap] [--minutes 60] [--report-every 60] [--wav out.wav]")
     exit(0)
 }
 guard let browser = Browser(rawValue: flags.string("browser", default: "chrome")),
-      let strategy = TapStrategy(rawValue: flags.string("strategy", default: "pids")) else {
-    log("unknown --browser or --strategy; see --help")
+      let strategy = TapStrategy(rawValue: flags.string("strategy", default: "pids")),
+      let tapClock = TapClock(rawValue: flags.string("clock", default: "output")) else {
+    log("unknown --browser, --strategy or --clock; see --help")
     exit(2)
 }
 let minutes = flags.double("minutes", default: 60)
@@ -49,14 +54,14 @@ func clock(_ seconds: Double) -> String {
     String(format: "%02d:%02d", Int(seconds) / 60, Int(seconds) % 60)
 }
 
-let session = CaptureSession(browser: browser, strategy: strategy)
+let session = CaptureSession(browser: browser, strategy: strategy, clock: tapClock)
 let writer = try flags.values["wav"].map { path -> WAVWriter in
     let url = URL(fileURLWithPath: path)
     try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
     return try WAVWriter(url: url, format: session.outputFormat)
 }
 
-print("spike-capture  browser=\(browser.rawValue) strategy=\(strategy.rawValue) minutes=\(String(format: "%g", minutes))")
+print("spike-capture  browser=\(browser.rawValue) strategy=\(strategy.rawValue) clock=\(tapClock.rawValue) minutes=\(String(format: "%g", minutes))")
 let start = MonotonicClock.now()
 let startCPU = cpuSeconds()
 let events = session.start()
@@ -111,6 +116,7 @@ print("""
 summary  browser=\(browser.rawValue) strategy=\(strategy.rawValue) wall=\(clock(wall))
   audio        \(String(format: "%.1f", s.outputSeconds)) s emitted (\(String(format: "%.1f", s.silenceFilledSeconds)) s of it silence filled for restarts and \(s.pauses) pauses), coverage \(String(format: "%.1f", coverage * 100))% of wall time
   input        \(s.inputSampleRate) Hz x \(s.inputChannels) ch, \(s.callbacks) callbacks (\(s.emptyCallbacks) empty), \(s.audibleChunks) audible chunks
+  devices      \(s.deviceChangesWithoutRestart) output changes followed without a rebuild (clock=\(tapClock.rawValue))
   retarget     \(s.retargets) in place, \(s.retargetFailures) refused; supported: \(s.retargetSupported.map { $0 ? "yes" : "no" } ?? "not needed")
   startup      \(s.startupMs.map { String(format: "first audio %.0f ms after the first tap started", $0) } ?? "no audio received")
   restarts     \(s.restarts.count) in \(outages.count + s.restartLog.unrecovered) outages\(outages.isEmpty ? "" : ", worst outage \(String(format: "%.0f", worstOutage)) ms")

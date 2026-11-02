@@ -41,6 +41,8 @@ public struct CaptureStatistics: Sendable {
     public var sourcePlaying = false
     /// Pauses in the browser's output (audio resuming after more than 250 ms).
     public var pauses = 0
+    /// Output-device changes handled without a rebuild (`TapClock.tap`).
+    public var deviceChangesWithoutRestart = 0
     public var retargets = 0
     public var retargetFailures = 0
     /// Whether in-place retargeting worked on this Mac (nil until first tried).
@@ -131,9 +133,13 @@ public final class CaptureSession: @unchecked Sendable {
     }
     private let shared = Mutex(Shared())
 
-    public init(browser: Browser, strategy: TapStrategy = .processes, outputFormat: AVAudioFormat? = nil) {
+    public let clock: TapClock
+
+    public init(browser: Browser, strategy: TapStrategy = .processes, outputFormat: AVAudioFormat? = nil,
+                clock: TapClock = .output) {
         self.browser = browser
         self.strategy = strategy
+        self.clock = clock
         self.outputFormat = outputFormat
             ?? AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
     }
@@ -304,7 +310,7 @@ public final class CaptureSession: @unchecked Sendable {
     private func startTap(restarting: Bool) {
         do {
             let target = try currentTarget()
-            let tap = ProcessTap(target: target, outputFormat: outputFormat)
+            let tap = ProcessTap(target: target, outputFormat: outputFormat, clock: clock)
             try tap.start { [weak self] chunk in self?.handle(chunk) }
             self.tap = tap
             tapStartedAt = MonotonicClock.now()
@@ -355,8 +361,16 @@ public final class CaptureSession: @unchecked Sendable {
         control.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             guard let self, self.running else { return }
             self.deviceChangePending = false
-            guard let tap = self.tap, let current = try? AudioProperty.defaultOutputDevice(),
-                  current.uid != tap.outputDeviceUID else { return }
+            guard let tap = self.tap, let current = try? AudioProperty.defaultOutputDevice() else { return }
+            if tap.clock == .tap {
+                // Not tied to the output device: keep capturing. The watchdog rebuilds
+                // the tap if audio stops while the browser is playing.
+                self.outputDeviceName = current.name
+                self.shared.withLock { $0.stats.deviceChangesWithoutRestart += 1 }
+                self.publish(.capturing(processes: self.tapped?.count ?? 0, outputDevice: current.name))
+                return
+            }
+            guard current.uid != tap.outputDeviceUID else { return }
             self.restart(reason: "output device changed to \(current.name)")
         }
     }

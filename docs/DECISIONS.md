@@ -319,3 +319,19 @@ Correction to the test 2 note: a tap delivers no IO callbacks until a tapped pro
 first plays, but once IO has started it continues through pauses, delivering silent
 buffers (callbacks kept rising at an "idle" report while the audible count stood still).
 The watchdog fix holds either way; pause filling simply rarely triggers.
+
+## 2026-11-02 - M1 tests 3 and 4 (v0.1.2): device switches cost rebuilds
+
+- **Test 4 PASS:** a new tab and a reload changed none of Chrome's audio processes (all
+  tabs play through one audio process), so no retarget or rebuild was needed; 0 gaps.
+- **Test 3, AirPods:** every output-device change rebuilt the tap, because its aggregate
+  device is clocked by the output device. Outages: 589, 94, 2,360 and 203 ms. The
+  2,360 ms one was a rebuild onto the AirPods while they were disconnecting (macOS
+  flipped LG, AirPods, LG within three seconds). Silence fill kept the timeline aligned
+  (3.23 s filled = the four outages).
+- **Experiment:** `TapClock.tap` builds the aggregate device from the tap alone, as Apple's
+  sample does. If the tap keeps delivering when Chrome changes outputs, device switches
+  need no rebuild and the 2 s criterion becomes moot. `spike-capture --clock tap`
+  (v0.1.3) runs it; default stays `output` until measured. Fallback if it fails:
+  make-before-break rebuilds (start the new tap, keep the old one until the new one
+  delivers).

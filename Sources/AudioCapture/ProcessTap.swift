@@ -88,10 +88,14 @@ public final class ProcessTap: @unchecked Sendable {
     private var converter: PCMConverter?
     private var expectedSampleTime: Double?
 
+    /// How the tap's aggregate device is built (M1 test 3 experiment).
+    public let clock: TapClock
+
     /// - Parameter outputFormat: format delivered to the consumer, normally the speech
     ///   engine's preferred format. Defaults to 16 kHz mono Float32.
-    public init(target: TapTarget, outputFormat: AVAudioFormat? = nil) {
+    public init(target: TapTarget, outputFormat: AVAudioFormat? = nil, clock: TapClock = .output) {
         self.target = target
+        self.clock = clock
         self.outputFormat = outputFormat
             ?? AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
     }
@@ -204,21 +208,33 @@ public final class ProcessTap: @unchecked Sendable {
     }
 
     private func createAggregateDevice() throws {
-        let outputUID = try AudioProperty.defaultOutputDeviceUID()
-        outputDeviceUID = outputUID
-        let description: [String: Any] = [
+        var description: [String: Any] = [
             kAudioAggregateDeviceNameKey: "Jeeves Tap",
             kAudioAggregateDeviceUIDKey: "jeeves-tap-\(UUID().uuidString)",
-            kAudioAggregateDeviceMainSubDeviceKey: outputUID,
             kAudioAggregateDeviceIsPrivateKey: true,
             kAudioAggregateDeviceIsStackedKey: false,
             kAudioAggregateDeviceTapAutoStartKey: true,
-            kAudioAggregateDeviceSubDeviceListKey: [[kAudioSubDeviceUIDKey: outputUID]],
-            kAudioAggregateDeviceTapListKey: [[
+        ]
+        switch clock {
+        case .output:
+            // Clocked by the current output device (the AudioCap sample's layout).
+            let outputUID = try AudioProperty.defaultOutputDeviceUID()
+            outputDeviceUID = outputUID
+            description[kAudioAggregateDeviceMainSubDeviceKey] = outputUID
+            description[kAudioAggregateDeviceSubDeviceListKey] = [[kAudioSubDeviceUIDKey: outputUID]]
+            description[kAudioAggregateDeviceTapListKey] = [[
                 kAudioSubTapDriftCompensationKey: true,
                 kAudioSubTapUIDKey: tapUUID.uuidString,
-            ]],
-        ]
+            ]]
+        case .tap:
+            // The tap alone, as in Apple's "Capturing system audio with Core Audio taps"
+            // sample: no output device, so changing outputs need not affect capture.
+            outputDeviceUID = nil
+            description[kAudioAggregateDeviceTapListKey] = [[
+                kAudioSubTapDriftCompensationKey: false,
+                kAudioSubTapUIDKey: tapUUID.uuidString,
+            ]]
+        }
         var newDevice = AudioObjectID(kAudioObjectUnknown)
         try check(AudioHardwareCreateAggregateDevice(description as CFDictionary, &newDevice), "AudioHardwareCreateAggregateDevice")
         aggregateID = newDevice
@@ -309,6 +325,17 @@ public final class ProcessTap: @unchecked Sendable {
 /// Meet): `processes` and `system` both captured the call with no gaps at about 2% CPU;
 /// `bundleIDs` delivered no audio. `processes` is the default because it hears only the
 /// browser, not notifications or other apps.
+/// What clocks the aggregate device that hosts a tap.
+public enum TapClock: String, CaseIterable, Sendable {
+    /// The current default output device is the aggregate's main sub-device. Proven in M0
+    /// and M1, but every output-device change needs a rebuild (89-2,360 ms outages in M1
+    /// test 3).
+    case output
+    /// The tap alone, no sub-device (Apple's sample layout). Under test: if the tap keeps
+    /// delivering when outputs change, device switches need no rebuild.
+    case tap
+}
+
 public enum TapStrategy: String, CaseIterable, Sendable {
     /// Every Core Audio process whose bundle ID matches the browser's prefixes.
     /// Snapshot at start: a helper the browser launches later is not included (M1).
