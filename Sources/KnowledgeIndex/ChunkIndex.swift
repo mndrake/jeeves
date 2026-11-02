@@ -7,12 +7,16 @@ public struct Chunk: Sendable, Equatable {
     /// `Title > H2 > H3` path of the chunk within its document.
     public var breadcrumb: String
     public var text: String
+    /// The knowledge source (folder or site) the chunk came from, so a source can be
+    /// re-indexed or removed as a unit. Empty for chunks inserted without one.
+    public var collection: String
 
-    public init(id: Int64? = nil, source: String, breadcrumb: String, text: String) {
+    public init(id: Int64? = nil, source: String, breadcrumb: String, text: String, collection: String = "") {
         self.id = id
         self.source = source
         self.breadcrumb = breadcrumb
         self.text = text
+        self.collection = collection
     }
 }
 
@@ -47,8 +51,10 @@ public final class ChunkIndex {
             id INTEGER PRIMARY KEY,
             source TEXT NOT NULL,
             breadcrumb TEXT NOT NULL,
-            text TEXT NOT NULL
+            text TEXT NOT NULL,
+            collection TEXT NOT NULL DEFAULT ''
         );
+        CREATE INDEX IF NOT EXISTS chunks_collection ON chunks(collection);
         CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
             text, breadcrumb, content='chunks', content_rowid='id', tokenize='porter unicode61'
         );
@@ -63,17 +69,18 @@ public final class ChunkIndex {
             embedding float[\(dimensions)] distance_metric=cosine
         );
         """)
-        insertChunk = try connection.prepare("INSERT INTO chunks(source, breadcrumb, text) VALUES (?, ?, ?)")
+        insertChunk = try connection.prepare("INSERT INTO chunks(source, breadcrumb, text, collection) VALUES (?, ?, ?, ?)")
         insertVector = try connection.prepare("INSERT INTO chunks_vec(rowid, embedding) VALUES (?, ?)")
-        // Column weights: text 1.0, breadcrumb 0.5.
+        // Column weights: text 1.0, breadcrumb 2.0. The breadcrumb holds the page title
+        // and section headings, which name the topic a spoken question is about.
         lexicalQuery = try connection.prepare("""
-        SELECT rowid, bm25(chunks_fts, 1.0, 0.5) AS score FROM chunks_fts
+        SELECT rowid, bm25(chunks_fts, 1.0, 2.0) AS score FROM chunks_fts
         WHERE chunks_fts MATCH ? ORDER BY score LIMIT ?
         """)
         vectorQuery = try connection.prepare("""
         SELECT rowid, distance FROM chunks_vec WHERE embedding MATCH ? AND k = ? ORDER BY distance
         """)
-        fetchChunk = try connection.prepare("SELECT id, source, breadcrumb, text FROM chunks WHERE id = ?")
+        fetchChunk = try connection.prepare("SELECT id, source, breadcrumb, text, collection FROM chunks WHERE id = ?")
     }
 
     /// Inserts chunks with their embeddings in one transaction. Returns the new IDs.
@@ -87,6 +94,7 @@ public final class ChunkIndex {
                 try insertChunk.bind(1, item.chunk.source)
                 try insertChunk.bind(2, item.chunk.breadcrumb)
                 try insertChunk.bind(3, item.chunk.text)
+                try insertChunk.bind(4, item.chunk.collection)
                 try insertChunk.run()
                 let id = connection.lastInsertRowID
                 try insertVector.bind(1, id)
@@ -95,6 +103,65 @@ public final class ChunkIndex {
                 return id
             }
         }
+    }
+
+    /// Inserts chunks without embeddings (lexical search only), in one transaction.
+    @discardableResult
+    public func insert(chunks: [Chunk]) throws -> [Int64] {
+        try connection.transaction {
+            try chunks.map { chunk in
+                try insertChunk.bind(1, chunk.source)
+                try insertChunk.bind(2, chunk.breadcrumb)
+                try insertChunk.bind(3, chunk.text)
+                try insertChunk.bind(4, chunk.collection)
+                try insertChunk.run()
+                return connection.lastInsertRowID
+            }
+        }
+    }
+
+    /// Replaces a collection's chunks atomically: searches see either the old set or
+    /// the new one, never a half-indexed source.
+    public func replaceCollection(_ collection: String, with chunks: [Chunk]) throws {
+        let delete = try connection.prepare("DELETE FROM chunks WHERE collection = ?")
+        try connection.transaction {
+            try delete.bind(1, collection)
+            try delete.run()
+            for chunk in chunks {
+                try insertChunk.bind(1, chunk.source)
+                try insertChunk.bind(2, chunk.breadcrumb)
+                try insertChunk.bind(3, chunk.text)
+                try insertChunk.bind(4, collection)
+                try insertChunk.run()
+            }
+        }
+    }
+
+    /// Deletes every chunk of one collection. Returns how many were removed.
+    @discardableResult
+    public func deleteCollection(_ collection: String) throws -> Int {
+        try connection.transaction {
+            let before = try count(collection: collection)
+            let statement = try connection.prepare("DELETE FROM chunks WHERE collection = ?")
+            try statement.bind(1, collection)
+            try statement.run()
+            return before
+        }
+    }
+
+    public func count(collection: String) throws -> Int {
+        let statement = try connection.prepare("SELECT count(*) FROM chunks WHERE collection = ?")
+        try statement.bind(1, collection)
+        _ = try statement.step()
+        return Int(statement.int64(0))
+    }
+
+    /// Number of distinct source documents in a collection.
+    public func documentCount(collection: String) throws -> Int {
+        let statement = try connection.prepare("SELECT count(DISTINCT source) FROM chunks WHERE collection = ?")
+        try statement.bind(1, collection)
+        _ = try statement.step()
+        return Int(statement.int64(0))
     }
 
     public func delete(chunkID: Int64) throws {
@@ -148,7 +215,8 @@ public final class ChunkIndex {
         try fetchChunk.bind(1, id)
         guard try fetchChunk.step() else { return nil }
         return Chunk(id: fetchChunk.int64(0), source: fetchChunk.string(1) ?? "",
-                     breadcrumb: fetchChunk.string(2) ?? "", text: fetchChunk.string(3) ?? "")
+                     breadcrumb: fetchChunk.string(2) ?? "", text: fetchChunk.string(3) ?? "",
+                     collection: fetchChunk.string(4) ?? "")
     }
 
     /// Splits on anything that is not a letter, digit or underscore, drops one-letter

@@ -1,0 +1,43 @@
+# Spoken-style questions over the Anthropic doc presets, with the URL fragment(s) of a page
+# that answers each (alternatives separated by |). Run: spike-kb --db kb.sqlite --eval this-file
+# Several are phrased the way on-device speech recognition hears them ("cloud code").
+how long does a cached prompt stay warm	build-with-claude/prompt-caching|en/prompt-caching
+what's the minimum number of tokens you can cache	build-with-claude/prompt-caching
+how much more does a one hour cache write cost	build-with-claude/prompt-caching|about-claude/pricing
+what does sonnet five five cost per million tokens	about-claude/pricing|models/sonnet-5-5|whats-new-claude-sonnet-5-5
+can I use the batch API with prompt caching	batch-processing
+how much cheaper is the batch API	batch-processing|about-claude/pricing
+what's the context window for opus five five	models/opus-5-5|models/overview|context-windows
+what happens when the model refuses mid stream	refusals-and-fallback|handle-streaming-refusals|handling-stop-reasons
+what does stop reason max tokens mean	handling-stop-reasons
+how do I stream responses	build-with-claude/streaming
+how do I count tokens before sending a request	token-counting
+what is the effort parameter	build-with-claude/effort
+how do I turn off thinking on haiku	build-with-claude/thinking|prompting-claude-haiku-5-5|models/haiku-5-5|effort
+how does extended thinking work with tool use	thinking-tool-workflows|extended-thinking
+how do I get structured JSON output	structured-outputs
+how does the web search tool work	web-search-tool
+what is the code execution tool	code-execution-tool
+how do citations work	build-with-claude/citations
+can Claude read PDFs	pdf-support
+what are agent skills	agent-skills/overview|en/skills
+how do I upload a file with the files API	build-with-claude/files
+what are the rate limits	rate-limits
+how do I connect an MCP server to the API	mcp-connector|remote-mcp-servers
+what is compaction	build-with-claude/compaction
+how do hooks work in cloud code	hooks-guide|en/hooks
+how do I add an MCP server to cloud code	en/mcp|mcp-quickstart
+how do I turn on auto mode	auto-mode-config|permission-modes
+where does cloud code store its settings	settings
+how do I create a custom subagent	sub-agents
+what's in the CLAUDE md memory file	en/memory
+how do I run cloud code in GitHub actions	github-actions
+how do I run cloud code headless from a script	headless
+how do I install a plugin	plugins/install
+how does cloud code use prompt caching	en/prompt-caching
+how do I resume a previous session	en/sessions|common-workflows
+what is plan mode	permission-modes|common-workflows
+how do I use cloud code with Bedrock	amazon-bedrock
+how do I make a slash command	skills|slash-commands|commands
+how do I run parallel sessions with worktrees	worktrees
+how do I see how much cloud code is costing me	costs|monitoring-usage

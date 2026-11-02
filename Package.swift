@@ -30,6 +30,7 @@ let package = Package(
         .executable(name: "spike-stt", targets: ["SpikeSTT"]),
         .executable(name: "spike-capture", targets: ["SpikeCapture"]),
         .executable(name: "spike-asr", targets: ["SpikeASR"]),
+        .executable(name: "spike-kb", targets: ["SpikeKB"]),
     ],
     dependencies: [
         // Parakeet speech recognition on Apple silicon (M2 engine comparison). Pinned;
@@ -70,10 +71,11 @@ let package = Package(
         .executableTarget(name: "SpikeSTT", dependencies: ["Transcription", "AudioCapture", "JeevesCore"]),
         .executableTarget(name: "SpikeCapture", dependencies: ["AudioCapture", "JeevesCore"]),
         .executableTarget(name: "SpikeASR", dependencies: ["Transcription", "AudioCapture", "JeevesCore"]),
+        .executableTarget(name: "SpikeKB", dependencies: ["KnowledgeIndex", "AnthropicAPI", "JeevesCore"]),
 
         .testTarget(name: "JeevesCoreTests", dependencies: ["JeevesCore"]),
         .testTarget(name: "AnthropicAPITests", dependencies: ["AnthropicAPI"]),
-        .testTarget(name: "KnowledgeIndexTests", dependencies: ["KnowledgeIndex"]),
+        .testTarget(name: "KnowledgeIndexTests", dependencies: ["KnowledgeIndex", "JeevesCore"]),
     ],
     swiftLanguageModes: [.v6]
 )

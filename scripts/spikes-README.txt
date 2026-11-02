@@ -30,5 +30,13 @@ Jeeves M0 spike tools (Apple silicon, macOS 26 or later)
        ./spike-asr asr-eval/*.wav --terms asr/terms.txt
        ./spike-stt --live --seconds 120 --second-pass parakeet-boost
 
-5. mock-anthropic.py is a local fake of the Claude API:
+5. M3 knowledge base (docs/M3.md):
+
+       ./spike-kb --db kb.sqlite --presets                 # index both Anthropic doc sites
+       ./spike-kb --db kb.sqlite --add ~/Notes             # a Markdown folder or Obsidian vault
+       ./spike-kb --db kb.sqlite --search "how long does a cached prompt stay warm"
+       ./spike-kb --db kb.sqlite --eval retrieval/questions.tsv
+       ANTHROPIC_API_KEY=sk-ant-... ./spike-kb --db kb.sqlite --ask "what does sonnet five five cost"
+
+6. mock-anthropic.py is a local fake of the Claude API:
        python3 mock-anthropic.py &   then   ./spike-claude --base-url http://127.0.0.1:8765
