@@ -1,6 +1,13 @@
 # PRD 02 - Streaming Transcription
 
-Milestone: M2. Owner stage: `TranscribeActor`. Status: v0.2 after interview (remote channel only, English).
+Milestone: M2. Status: v0.3 (2026-11-02): M0 results folded in, M2 tooling built; tests in `docs/M2.md`.
+
+**Updates from M0 and M2:** SpeechAnalyzer final results lag about 1.1 s after speech
+ends, so detection acts on the latest partial at 400 ms of silence (PRD 03); final-result
+latency is no longer a requirement. SpeechAnalyzer misheard product names ("cloud code"),
+so the engine choice now turns on domain-term recall. Candidates: SpeechAnalyzer plus an
+alias table; Parakeet (FluidAudio) as the main engine; or Parakeet as a per-utterance
+second pass after SpeechAnalyzer's fast partials.
 
 ## Problem
 Turn the remote audio into text fast enough that a question is fully
@@ -47,7 +54,8 @@ The engine is chosen at the end of M2 by a scripted head-to-head.
 - No network calls, ever, from this stage.
 
 ## Acceptance criteria
-- Shoot-out report committed to `docs/DECISIONS.md` with the numbers above for each engine.
+- Shoot-out report committed to `docs/DECISIONS.md` with the numbers above for each engine (tool: `spike-asr`).
+- Provisional text (partial at 400 ms of silence) compared with finals live (tool: `spike-stt --live`).
 - Chosen engine meets latency and memory targets on the Air during a live 30-minute call.
 - Domain-term accuracy: >= 90% of the top-50 terms from the index (Anthropic/API vocabulary and the user's notes) transcribed correctly in a read-aloud test.
 

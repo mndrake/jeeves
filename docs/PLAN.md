@@ -187,11 +187,11 @@ Estimates assume one developer, mostly full time.
 - Four throwaway demos on the target machine: process tap on Chrome/Safari captures Meet audio; `SpeechAnalyzer` streams text; `sqlite-vec` loads and queries; a Swift `URLSession` SSE client streams a Sonnet 5.5 answer with a cached prefix (verify `cache_read_input_tokens` > 0 on the second call).
 - Exit: numbers for each in `docs/DECISIONS.md`.
 
-### M1 - Hear the browser (1 week) -> PRD 01 - code complete 2026-11-02, Mac tests in `docs/M1.md`
+### M1 - Hear the browser (1 week) -> PRD 01 - accepted 2026-11-02 with open items; see `docs/M1.md`
 - Tap Chrome or Safari by bundle ID including helper processes; AirPods switching; browser launched after Jeeves.
 - Exit: 60-minute Meet and Zoom-web calls captured with no dropouts.
 
-### M2 - Live transcript (1.5-2 weeks) -> PRD 02
+### M2 - Live transcript (1.5-2 weeks) -> PRD 02 - code complete 2026-11-02, Mac tests in `docs/M2.md`
 - Streaming STT, utterance segmentation, vocabulary hints from the index.
 - Shoot-out `SpeechAnalyzer` vs FluidAudio on 30 min of your recorded calls, with a read-aloud test of Anthropic/API terminology.
 - Exit: final-segment latency under 600 ms; domain-term accuracy acceptable.

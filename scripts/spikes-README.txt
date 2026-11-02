@@ -24,5 +24,11 @@ Jeeves M0 spike tools (Apple silicon, macOS 26 or later)
        ./spike-capture --minutes 60                        # soak test during a real call
        ./spike-capture --minutes 5 --report-every 10       # event tests: AirPods, new tab, quit Chrome
 
-4. mock-anthropic.py is a local fake of the Claude API:
+4. M2 transcript tests (docs/M2.md):
+
+       ./asr/make-tts-eval.sh asr-eval
+       ./spike-asr asr-eval/*.wav --terms asr/terms.txt
+       ./spike-stt --live --seconds 120 --second-pass parakeet-boost
+
+5. mock-anthropic.py is a local fake of the Claude API:
        python3 mock-anthropic.py &   then   ./spike-claude --base-url http://127.0.0.1:8765

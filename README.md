@@ -14,6 +14,7 @@ Planning documents:
 
 - `docs/M0.md` - M0 runbook, results table and exit criteria
 - `docs/M1.md` - M1 capture resilience tests and results
+- `docs/M2.md` - M2 speech-engine comparison and live transcript tests
 
 - `docs/PLAN.md` - vision, architecture, decisions, latency budget, milestones M0-M6, risks, open questions
 - `docs/prd/01-audio-capture.md` - browser audio via Core Audio process taps
@@ -31,7 +32,8 @@ Planning documents:
 Milestone M0 (spikes and skeleton) is complete: audio capture, on-device transcription,
 local search and Claude answers all meet the latency plan on the MacBook Air. See
 `docs/M0.md` for results and `docs/DECISIONS.md` for what they decided. M1 (capture
-that survives a whole call) is code complete; its tests are in `docs/M1.md`.
+that survives a whole call) is accepted. M2 (transcript accuracy: Apple vs Parakeet, and
+a Parakeet second pass) is code complete; its tests are in `docs/M2.md`.
 
 ## Download
 

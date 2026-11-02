@@ -342,3 +342,24 @@ Chrome quit mid-run: capture reported that Chrome had no audio processes and wai
 no restarts or errors. Chrome reopened: capture resumed by itself about 15 s later with 0
 gaps; 5 s of silence (the cap) was filled, so the timeline is 10 s short across a long
 absence, as designed.
+
+## 2026-11-02 - M1 accepted with open items; M2 started
+
+- M1 accepted on tests 1, 2, 4 and 5 (YouTube in Chrome). Open, not blocking: test 3
+  without the AirPods auto-pause and with `--clock tap`, tests 6 and 7, one Meet call, and
+  outage timing that excludes paused time.
+- Test 3 correction: taking AirPods out pauses the video, and a new tap delivers nothing
+  until playback resumes, so most of the 2,360 ms outage was the pause, not lost audio.
+
+## 2026-11-02 - M2 design
+
+- **FluidAudio 0.18.2** with `traits: []` (speech recognition and VAD only), pinned by
+  exact version and `Package.resolved`.
+- **Two-pass candidate:** SpeechAnalyzer partials keep the 400 ms trigger; Parakeet
+  re-transcribes each finished utterance in one batch call (FluidAudio quotes about 190x
+  real time on an M4 Pro, so a 5 s utterance is tens of milliseconds) with optional CTC
+  vocabulary boosting. FluidAudio's streaming manager was ruled out for the live path: it
+  confirms text in 11 s windows with 1-2 s hypothesis updates.
+- **Alias table** in JeevesCore rewrites observed mishearings on word boundaries, never
+  single common words ("cloud" alone stays "cloud").
+- Decision rules for the engine and the second pass are in `docs/M2.md`.
