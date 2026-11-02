@@ -237,5 +237,27 @@ Seven answers reviewed against the six passages the spike sends:
   same facts, citations and "Not covered" notes, occasionally a slightly sharper gap
   note ("Not covered: cache read price"). No quality gain to offset its slower tail
   (p95 1,335 ms versus 843 ms), which confirms `between_tools` as the default.
-- Not yet tested: the "Not in your notes." path (the uncovered Rust question was tenth,
-  beyond the default 8; now third) and Haiku 5.5 answer quality.
+- Correction: the "Not in your notes." path did run, through the Swift question (see the
+  next entry). The deliberately uncovered Rust question was tenth, beyond the default 8,
+  and is now third.
+
+## 2026-11-02 - M0 answer quality across all four modes
+
+Same eight questions, answers from the user's `claude.json`:
+
+- **Haiku 5.5 (`fast`) matched Sonnet on this set.** All answers grounded and correctly
+  cited with the same facts, including the partial-coverage note on mid-answer refusals
+  ("Not covered: whether a refusal arriving partway through an answer is retried"). Some
+  were tighter than Sonnet's (a one-bullet price answer). One small inference beyond the
+  passage ("a non-zero value confirms a cache hit"), which is reasonable.
+- **Opus 5.5 (`deep`) added nothing on these questions**: same content with an extra
+  bullet, 1-3 s to the first word. Stays on demand only.
+- **Default stays Sonnet 5.5 with thinking off**, for the better tail latency (p95 843 ms
+  versus Haiku's 945 ms) and expected headroom on harder, multi-passage questions. Cost
+  does not decide it: about $0.12 versus $0.005 per one-hour call. Revisit with the
+  60-question evaluation set in M3/M4; if Haiku holds up there, it can become the default.
+- **Prompt fix for M4: absence from a complete list is an answer.** Asked "Is there an
+  official Swift SDK?", Sonnet `standard` answered "No Swift SDK listed" with the list and
+  citation, but `standard-adaptive`, Haiku and Opus all said "Not in your notes." even
+  though passage [1] lists every official SDK. Add: "If a passage gives a complete list
+  and the item asked about is not in it, say it is not listed and cite the list."
