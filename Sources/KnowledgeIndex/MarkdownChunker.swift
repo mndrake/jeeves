@@ -307,14 +307,14 @@ public struct MarkdownChunker: Sendable {
         return (values, lines[(end + 1)...].joined(separator: "\n"))
     }
 
-    nonisolated(unsafe) static let imagePattern = try! NSRegularExpression(pattern: #"!\[[^\]]*\]\([^)]*\)"#)
-    nonisolated(unsafe) static let linkPattern = try! NSRegularExpression(pattern: #"\[([^\]]*)\]\([^)]*\)"#)
-    nonisolated(unsafe) static let wikiEmbedPattern = try! NSRegularExpression(pattern: #"!\[\[[^\]]*\]\]"#)
-    nonisolated(unsafe) static let wikiAliasPattern = try! NSRegularExpression(pattern: #"\[\[[^\]|]*\|([^\]]*)\]\]"#)
-    nonisolated(unsafe) static let wikiLinkPattern = try! NSRegularExpression(pattern: #"\[\[([^\]]*)\]\]"#)
+    static let imagePattern = try! NSRegularExpression(pattern: #"!\[[^\]]*\]\([^)]*\)"#)
+    static let linkPattern = try! NSRegularExpression(pattern: #"\[([^\]]*)\]\([^)]*\)"#)
+    static let wikiEmbedPattern = try! NSRegularExpression(pattern: #"!\[\[[^\]]*\]\]"#)
+    static let wikiAliasPattern = try! NSRegularExpression(pattern: #"\[\[[^\]|]*\|([^\]]*)\]\]"#)
+    static let wikiLinkPattern = try! NSRegularExpression(pattern: #"\[\[([^\]]*)\]\]"#)
     /// JSX components (capitalized) and common HTML tags. Inline code is left alone
     /// only in the sense that tags inside backticks are rare in prose.
-    nonisolated(unsafe) static let tagPattern = try! NSRegularExpression(
+    static let tagPattern = try! NSRegularExpression(
         pattern: #"</?(?:[A-Z][A-Za-z0-9.]*|div|span|p|br|img|a|details|summary|sup|sub|table|thead|tbody|tr|td|th|iframe|video|source|figure|figcaption|picture)(?:\s[^<>]*)?/?>"#)
 
     static func replace(_ regex: NSRegularExpression, in text: String, with template: String) -> String {
