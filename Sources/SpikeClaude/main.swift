@@ -45,9 +45,12 @@ let transcript = """
 it's actually caching. Quick question for you while we're on it...
 """
 
+// "Rust" is deliberately not covered by the passages, to exercise "Not in your notes."
+// It sits inside the default first 8 so every run tests that path.
 let questions = [
     "How long does a cached prompt stay warm?",
     "Why would our prompt not be caching at all?",
+    "Can we use it from Rust?",
     "What does Sonnet five point five cost per million tokens?",
     "What happens if the model refuses mid-answer, can it fall back automatically?",
     "If the stream dies halfway with an overloaded error what should we do?",
@@ -55,7 +58,6 @@ let questions = [
     "How do we check whether the cache actually hit?",
     "What's the price difference between the five minute and one hour cache?",
     "Does Haiku cost the same as Sonnet?",
-    "Can we use it from Rust?",
 ]
 
 func userTurn(_ question: String) -> String {

@@ -220,3 +220,18 @@ Carried into M1 and later:
   user's `claude.json`).
 - Fixed after the app run: transcript segments carried a leading space, which indented
   every line after the first.
+
+## 2026-11-02 - M0 answer quality, Sonnet 5.5 `standard` (from the user's claude.json)
+
+Seven answers reviewed against the six passages the spike sends:
+
+- All grounded and correctly cited; no claims beyond the passages.
+- Partial coverage handled as designed: asked whether a mid-answer refusal can fall back
+  automatically, it answered from passage 6 and added "Not covered: behavior for a
+  refusal that occurs mid-stream after partial output".
+- Correct hedging ("No Swift SDK listed" rather than "there is no Swift SDK").
+- Style drift to fix in M4 prompt tuning: sometimes two bolded phrases instead of one,
+  one answer slightly over the 60-word cap, occasional adjacent facts that were not
+  asked for (cache pricing in the Sonnet price answer).
+- Not yet tested: the "Not in your notes." path (the uncovered Rust question was tenth,
+  beyond the default 8; now third) and Haiku 5.5 answer quality.
