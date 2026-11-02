@@ -50,8 +50,10 @@ if flags.has("live") {
         exit(2)
     }
     let seconds = flags.double("seconds", default: 120)
-    let tap = ProcessTap(target: try ProcessTap.target(for: browser, strategy: strategy), outputFormat: session.audioFormat)
-    let chunks = try tap.start()
+    // Supervised capture: survives new browser processes and output-device changes,
+    // and fills restart gaps with silence so result timestamps stay aligned.
+    let capture = CaptureSession(browser: browser, strategy: strategy, outputFormat: session.audioFormat)
+    let events = capture.start()
     let audioStart = MonotonicClock.now()
     let showPartials = flags.has("partials")
 
@@ -66,7 +68,11 @@ if flags.has("live") {
         var endpointer = SilenceEndpointer(speechThresholdDecibels: speechDB, silenceDuration: silenceMs / 1000)
         var peak: Float = -160
         var nextHeartbeat = 10.0
-        for await chunk in chunks {
+        for await event in events {
+            guard case .audio(let chunk) = event else {
+                if case .status(let status) = event { print("  [capture] \(status)") }
+                continue
+            }
             session.feed(chunk.buffer)
             peak = max(peak, chunk.rmsDecibels)
             let duration = Double(chunk.buffer.frameLength) / sampleRate
@@ -109,7 +115,7 @@ if flags.has("live") {
     }
 
     try await Task.sleep(for: .seconds(seconds))
-    tap.stop()
+    capture.stop()
     feeder.cancel()
     try await session.finish()
     let (finals, partials) = try await reader.value
@@ -122,7 +128,7 @@ if flags.has("live") {
       speech end to final \(LatencyStats(matcher.latenciesMs)?.summary ?? "no matched speech ends")
       speech ends         \(matcher.detected) detected (silence \(Int(silenceMs)) ms, speech above \(Int(speechDB)) dBFS); \(matcher.latenciesMs.count) matched, \(matcher.merged) merged into longer finals, \(matcher.unmatched) never finalized
       finalize errors     \(endpoints.finalizeErrors)
-      tap gaps            \(tap.stats.discontinuities)
+      capture             \(capture.statistics.discontinuities) gaps, \(capture.statistics.restarts.count) restarts, \(String(format: "%.2f", capture.statistics.silenceFilledSeconds)) s silence filled
 
     "speech end to final" includes the \(Int(silenceMs)) ms silence wait when finalize-on-silence is on.
     Partial text is usable at the silence threshold itself, so compare against \(Int(silenceMs)) ms.

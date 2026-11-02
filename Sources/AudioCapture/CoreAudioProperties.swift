@@ -65,11 +65,18 @@ enum AudioProperty {
 
     /// The system's default output device and its UID (the aggregate device's clock source).
     static func defaultOutputDeviceUID() throws -> String {
+        try defaultOutputDevice().uid
+    }
+
+    /// The default system output device: its UID and its user-visible name ("MacBook Air
+    /// Speakers", "AirPods Pro").
+    static func defaultOutputDevice() throws -> (uid: String, name: String) {
         let device = try scalar(systemObject, kAudioHardwarePropertyDefaultSystemOutputDevice, initial: AudioDeviceID(kAudioObjectUnknown))
         guard let uid = try string(device, kAudioDevicePropertyDeviceUID) else {
             throw CoreAudioError(status: -1, operation: "default output device has no UID")
         }
-        return uid
+        let name = (try? string(device, kAudioObjectPropertyName)) ?? nil
+        return (uid, name ?? uid)
     }
 
     /// Translates a PID to its Core Audio process object (kAudioObjectUnknown if none).

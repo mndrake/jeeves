@@ -33,6 +33,8 @@ public struct TapStatistics: Sendable, Equatable {
     public var conversionErrors = 0
     public var inputSampleRate: Double = 0
     public var inputChannels: Int = 0
+    /// Monotonic time of the most recent IO callback (0 before the first), for stall detection.
+    public var lastCallbackAt: UInt64 = 0
 }
 
 /// What to capture.
@@ -71,6 +73,14 @@ public final class ProcessTap: @unchecked Sendable {
     private var aggregateID = AudioObjectID(kAudioObjectUnknown)
     private var ioProcID: AudioDeviceIOProcID?
     private var continuation: AsyncStream<AudioChunk>.Continuation?
+    /// Set once before IO starts and never changed, so the IO queue can read it safely.
+    private var deliver: (@Sendable (AudioChunk) -> Void)?
+    private var tapDescription: CATapDescription?
+
+    /// UID of the output device the aggregate device is clocked from.
+    public private(set) var outputDeviceUID: String?
+    /// The processes a per-process tap currently covers.
+    public private(set) var tappedProcesses: [AudioObjectID] = []
 
     // Touched only on ioQueue.
     private var converter: PCMConverter?
@@ -99,9 +109,17 @@ public final class ProcessTap: @unchecked Sendable {
     /// Creates the tap and aggregate device and starts IO. Chunks arrive on the
     /// returned stream until `stop()` is called.
     public func start() throws -> AsyncStream<AudioChunk> {
-        precondition(ioProcID == nil, "tap already started")
         let (stream, continuation) = AsyncStream.makeStream(of: AudioChunk.self, bufferingPolicy: .bufferingNewest(256))
         self.continuation = continuation
+        try start { continuation.yield($0) }
+        return stream
+    }
+
+    /// Starts IO and calls `handler` on the tap's IO queue for every converted chunk.
+    /// The handler must return quickly.
+    public func start(handler: @escaping @Sendable (AudioChunk) -> Void) throws {
+        precondition(ioProcID == nil, "tap already started")
+        deliver = handler
         do {
             try createTap()
             try createAggregateDevice()
@@ -110,7 +128,28 @@ public final class ProcessTap: @unchecked Sendable {
             stop()
             throw error
         }
-        return stream
+    }
+
+    /// Changes which processes a running per-process tap covers, without stopping IO.
+    /// Returns false if this is not a per-process tap or Core Audio refuses the change
+    /// (the caller then rebuilds the tap instead).
+    public func retarget(processes: [AudioObjectID]) -> Bool {
+        guard case .processes = target, let description = tapDescription,
+              tapID != AudioObjectID(kAudioObjectUnknown) else { return false }
+        let previous = description.processes
+        description.processes = processes
+        var address = AudioProperty.address(kAudioTapPropertyDescription)
+        var reference = Unmanaged.passUnretained(description)
+        let tap = tapID
+        let status = withUnsafeMutableBytes(of: &reference) { bytes in
+            AudioObjectSetPropertyData(tap, &address, 0, nil, UInt32(bytes.count), bytes.baseAddress!)
+        }
+        if status == noErr {
+            tappedProcesses = processes
+            return true
+        }
+        description.processes = previous
+        return false
     }
 
     public func stop() {
@@ -138,6 +177,9 @@ public final class ProcessTap: @unchecked Sendable {
         switch target {
         case .processes(let objects):
             description = CATapDescription(monoMixdownOfProcesses: objects)
+            // Re-add processes by bundle ID if they exit and start again (browser helpers).
+            description.isProcessRestoreEnabled = true
+            tappedProcesses = objects
         case .bundleIDs(let bundleIDs):
             description = CATapDescription()
             description.bundleIDs = bundleIDs
@@ -152,6 +194,7 @@ public final class ProcessTap: @unchecked Sendable {
         description.isPrivate = true
         description.muteBehavior = .unmuted
         tapUUID = description.uuid
+        tapDescription = description
 
         var newTap = AudioObjectID(kAudioObjectUnknown)
         try check(AudioHardwareCreateProcessTap(description, &newTap), "AudioHardwareCreateProcessTap(\(target))")
@@ -160,6 +203,7 @@ public final class ProcessTap: @unchecked Sendable {
 
     private func createAggregateDevice() throws {
         let outputUID = try AudioProperty.defaultOutputDeviceUID()
+        outputDeviceUID = outputUID
         let description: [String: Any] = [
             kAudioAggregateDeviceNameKey: "Jeeves Tap",
             kAudioAggregateDeviceUIDKey: "jeeves-tap-\(UUID().uuidString)",
@@ -206,6 +250,7 @@ public final class ProcessTap: @unchecked Sendable {
             statistics.withLock {
                 $0.callbacks += 1
                 $0.emptyCallbacks += 1
+                $0.lastCallbackAt = capturedAt
             }
             return
         }
@@ -232,10 +277,10 @@ public final class ProcessTap: @unchecked Sendable {
             if failed { $0.conversionErrors += 1 }
             if level > -50 { $0.audibleChunks += 1 }
             $0.intervalPeakDecibels = max($0.intervalPeakDecibels, level)
+            $0.lastCallbackAt = capturedAt
         }
         if let output {
-            continuation?.yield(AudioChunk(buffer: output, hostTime: time.mHostTime, capturedAt: capturedAt,
-                                           rmsDecibels: level))
+            deliver?(AudioChunk(buffer: output, hostTime: time.mHostTime, capturedAt: capturedAt, rmsDecibels: level))
         }
     }
 

@@ -21,9 +21,11 @@ final class ListeningModel {
     var levelDecibels: Float = -160
     var partial = ""
     var finals: [String] = []
+    /// The capture supervisor's latest status ("capturing 12 processes, output: AirPods").
+    var captureStatus = ""
     private(set) var finalLags: [Double] = []
 
-    private var tap: ProcessTap?
+    private var capture: CaptureSession?
     private var session: SpeechAnalyzerSession?
     private var runTask: Task<Void, Never>?
     private var feedTask: Task<Void, Never>?
@@ -50,12 +52,13 @@ final class ListeningModel {
         partial = ""
         finals = []
         finalLags = []
+        captureStatus = ""
         runTask = Task { await run() }
     }
 
     func stop() {
-        tap?.stop()
-        tap = nil
+        capture?.stop()
+        capture = nil
         feedTask?.cancel()
         feedTask = nil
         let session = self.session
@@ -71,23 +74,30 @@ final class ListeningModel {
     private func run() async {
         do {
             let session = try await SpeechAnalyzerSession.start(mode: .fast, contextualStrings: DomainVocabulary.anthropic)
-            let target = try ProcessTap.target(for: browser, strategy: strategy)
-            let tap = ProcessTap(target: target, outputFormat: session.audioFormat)
-            let chunks = try tap.start()
+            // The supervisor follows the browser's processes and output-device changes,
+            // and fills restart gaps with silence so result timestamps stay aligned.
+            let capture = CaptureSession(browser: browser, strategy: strategy, outputFormat: session.audioFormat)
+            let events = capture.start()
             self.session = session
-            self.tap = tap
+            self.capture = capture
             phase = .listening
             let audioStart = MonotonicClock.now()
 
             // Feed audio off the main actor; publish the level at most 10 times a second.
             feedTask = Task.detached { [weak self] in
                 var lastLevel: UInt64 = 0
-                for await chunk in chunks {
-                    session.feed(chunk.buffer)
-                    if chunk.capturedAt &- lastLevel > 100_000_000 {
-                        lastLevel = chunk.capturedAt
-                        let level = chunk.rmsDecibels
-                        await MainActor.run { self?.levelDecibels = level }
+                for await event in events {
+                    switch event {
+                    case .audio(let chunk):
+                        session.feed(chunk.buffer)
+                        if chunk.capturedAt &- lastLevel > 100_000_000 {
+                            lastLevel = chunk.capturedAt
+                            let level = chunk.rmsDecibels
+                            await MainActor.run { self?.levelDecibels = level }
+                        }
+                    case .status(let status):
+                        let text = status.description
+                        await MainActor.run { self?.captureStatus = text }
                     }
                 }
             }

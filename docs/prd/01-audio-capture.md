@@ -1,6 +1,6 @@
 # PRD 01 - Audio Capture
 
-Milestone: M1. Owner stage: `CaptureActor`. Status: v0.2 after interview (browser calls, remote audio only).
+Milestone: M1. Owner: `CaptureSession` (`Sources/AudioCapture`). Status: v0.3, implemented in M1 (2026-11-02); Mac tests in `docs/M1.md`.
 
 ## Problem
 Jeeves must hear what the other participants on a browser-based call (Google Meet or Zoom
@@ -27,12 +27,12 @@ not captured in v1 (interview decision).
 
 ## Functional requirements
 1. Enumerate running processes that have audio output, with app name and icon (`kAudioHardwarePropertyProcessObjectList`, bundle ID lookup).
-2. Source modes: **single app** (default; browsers listed first) and **all system audio excluding Jeeves** (fallback when the browser's helper processes make per-app tapping unreliable).
+2. Source modes: **browser processes** (default since M0: `pids`), **all system audio excluding Jeeves** (fallback), and **bundle ID** (experimental; captured nothing from Chrome in M0).
 3. Tap is private (`isPrivate = true`) and non-muting (the user still hears the call).
 4. Wrap the tap in an aggregate device; read via an IO proc; resample to 16 kHz mono with `AVAudioConverter`.
 5. Frames tagged `.remote`; the `.me` tag is reserved for a future mic channel.
-6. Listen for `kAudioHardwarePropertyDefaultOutputDevice` / default input changes and process termination; tear down and recreate the tap transparently; emit a status event.
-7. Simple energy-based VAD to suppress silence frames before they hit STT (saves CPU on a fanless Air).
+6. Listen for `kAudioHardwarePropertyDefaultOutputDevice` / default input changes and process termination; tear down and recreate the tap transparently; emit a status event. **Implemented** by `CaptureSession`: process-list and default-output listeners, a 1 s poll, a 1.5 s IO-stall watchdog, in-place retargeting with rebuild fallback, exponential retry backoff, and silence fill across rebuilds (docs/M1.md).
+7. Simple energy-based VAD to suppress silence frames before they hit STT (saves CPU on a fanless Air). **Deferred** until the M1 soak measures speech-recognition CPU; M0 tap CPU was 2%.
 8. Expose `AsyncStream<AudioChunk>` where `AudioChunk { channel, hostTime, samples }`.
 
 ## Permissions and entitlements

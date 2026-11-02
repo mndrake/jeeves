@@ -1,5 +1,6 @@
 import AppKit
 import AudioCapture
+import JeevesCore
 import SwiftUI
 
 struct StatusView: View {
@@ -27,6 +28,12 @@ struct StatusView: View {
             .disabled(model.isRunning)
 
             LevelMeter(decibels: model.levelDecibels)
+            if !model.captureStatus.isEmpty {
+                Text(model.captureStatus)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
 
             Button(model.isRunning ? "Stop listening" : "Start listening") {
                 model.isRunning ? model.stop() : model.start()
@@ -59,7 +66,7 @@ struct StatusView: View {
 
             Divider()
             HStack {
-                Text("M0 build: transcript only").font(.caption).foregroundStyle(.tertiary)
+                Text("M1 build: transcript only").font(.caption).foregroundStyle(.tertiary)
                 Spacer()
                 Button("Quit") { NSApplication.shared.terminate(nil) }
             }

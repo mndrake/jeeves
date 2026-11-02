@@ -187,7 +187,7 @@ Estimates assume one developer, mostly full time.
 - Four throwaway demos on the target machine: process tap on Chrome/Safari captures Meet audio; `SpeechAnalyzer` streams text; `sqlite-vec` loads and queries; a Swift `URLSession` SSE client streams a Sonnet 5.5 answer with a cached prefix (verify `cache_read_input_tokens` > 0 on the second call).
 - Exit: numbers for each in `docs/DECISIONS.md`.
 
-### M1 - Hear the browser (1 week) -> PRD 01
+### M1 - Hear the browser (1 week) -> PRD 01 - code complete 2026-11-02, Mac tests in `docs/M1.md`
 - Tap Chrome or Safari by bundle ID including helper processes; AirPods switching; browser launched after Jeeves.
 - Exit: 60-minute Meet and Zoom-web calls captured with no dropouts.
 

@@ -28,6 +28,7 @@ let package = Package(
         .executable(name: "spike-vec", targets: ["SpikeVec"]),
         .executable(name: "spike-tap", targets: ["SpikeTap"]),
         .executable(name: "spike-stt", targets: ["SpikeSTT"]),
+        .executable(name: "spike-capture", targets: ["SpikeCapture"]),
     ],
     targets: [
         // Vendored SQLite amalgamation + sqlite-vec (see Sources/CSQLite/VENDORED.md).
@@ -57,6 +58,7 @@ let package = Package(
         .executableTarget(name: "SpikeVec", dependencies: ["KnowledgeIndex", "JeevesCore"]),
         .executableTarget(name: "SpikeTap", dependencies: ["AudioCapture", "JeevesCore"]),
         .executableTarget(name: "SpikeSTT", dependencies: ["Transcription", "AudioCapture", "JeevesCore"]),
+        .executableTarget(name: "SpikeCapture", dependencies: ["AudioCapture", "JeevesCore"]),
 
         .testTarget(name: "JeevesCoreTests", dependencies: ["JeevesCore"]),
         .testTarget(name: "AnthropicAPITests", dependencies: ["AnthropicAPI"]),

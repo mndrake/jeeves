@@ -261,3 +261,19 @@ Same eight questions, answers from the user's `claude.json`:
   citation, but `standard-adaptive`, Haiku and Opus all said "Not in your notes." even
   though passage [1] lists every official SDK. Add: "If a passage gives a complete list
   and the item asked about is not in it, say it is not listed and cite the list."
+
+## 2026-11-02 - M1 design: supervised capture
+
+- One `CaptureSession` per listening session owns the tap and repairs it: retarget in
+  place when the browser's process set changes, rebuild on output-device change or a
+  1.5 s IO stall, pause while the browser has no audio processes, retry failed rebuilds
+  with backoff (0.25 s doubling to 4 s).
+- Without in-place retargeting, a rebuild happens only when a process the tap misses is
+  actually playing, because each rebuild drops a moment of audio.
+- Audio lost in a rebuild is replaced with silence (up to 5 s) so speech timestamps stay
+  aligned with real time. No filling during normal capture, where small differences are
+  clock drift.
+- Decisions are pure functions in JeevesCore with unit tests; the Core Audio side is
+  thin and verified by `spike-capture` on the Mac.
+- Open: whether `kAudioTapPropertyDescription` can be set on a running tap. Apple's
+  documentation does not say; `spike-capture` reports it.

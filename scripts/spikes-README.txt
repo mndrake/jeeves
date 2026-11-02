@@ -19,5 +19,10 @@ Jeeves M0 spike tools (Apple silicon, macOS 26 or later)
    macOS asks Terminal for "system audio recording" permission the first time a
    tap starts. If nothing appears, check System Settings > Privacy & Security.
 
-3. mock-anthropic.py is a local fake of the Claude API:
+3. M1 capture tests (docs/M1.md):
+
+       ./spike-capture --minutes 60                        # soak test during a real call
+       ./spike-capture --minutes 5 --report-every 10       # event tests: AirPods, new tab, quit Chrome
+
+4. mock-anthropic.py is a local fake of the Claude API:
        python3 mock-anthropic.py &   then   ./spike-claude --base-url http://127.0.0.1:8765
