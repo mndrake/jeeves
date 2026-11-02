@@ -308,3 +308,14 @@ Started `spike-capture` before Chrome, then opened Chrome and played a video:
   resuming after more than 250 ms counts as a pause and is preceded by silence (up to
   5 s) to keep timestamps aligned. Coverage is reported, not graded. Shipped in v0.1.2;
   v0.1.1's 5 s startup allowance would still have restarted silent taps.
+
+## 2026-11-02 - M1 test 2 re-run on v0.1.2: no false restarts
+
+Chrome open, `spike-capture` started, video played after about 12 s, run for 3 minutes:
+0 restarts, 0 gaps, first audio 12,244 ms after the tap started (at playback), CPU 1.4%,
+memory flat at 14.8 MB.
+
+Correction to the test 2 note: a tap delivers no IO callbacks until a tapped process
+first plays, but once IO has started it continues through pauses, delivering silent
+buffers (callbacks kept rising at an "idle" report while the audible count stood still).
+The watchdog fix holds either way; pause filling simply rarely triggers.
