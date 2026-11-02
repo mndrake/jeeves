@@ -133,3 +133,30 @@ fast mode, `pids`, no forced finalization:
   shoot-out should weigh domain-term accuracy, where FluidAudio/Parakeet may do better.
 - The live-answer prompt had runs of spaces inside some sentences, from line
   continuations lost in an earlier edit. Rewritten, with a test that guards it.
+
+## 2026-11-02 - Finalize experiment: forced finals are fast but fragment text (v0.0.3)
+
+Same setup as the baseline, with `--finalize-on-silence` (400 ms of silence, speech
+above -45 dBFS): Jeeves calls `SpeechAnalyzer.finalize(through:)` at each detected end.
+
+| Measurement | Baseline | Forced at 400 ms |
+|---|---|---|
+| Speech end to final, p50 / p95 | 1,117 ms / (overstated) | 518 / 540 ms |
+| Final lag p50 / p95 | 973 / 1,125 ms | 241 / 1,088 ms |
+| Speech ends matched | 9 of 13 (4 merged) | 10 of 11 (1 merged) |
+
+- Latency: the engine finalizes about 120 ms after being asked, so forced finals land
+  near the silence setting.
+- Quality: forcing a final at every 400 ms pause cut sentences mid-phrase. The run had
+  fragment finals such as "to.", "..", "don...", "where......." and ", to, and force
+  the rules", and context loss at the cuts ("your 1st plane prompt in a 1st essenary",
+  versus "your first plan prompt in a fresh session" in the baseline). Natural speech
+  pauses mid-sentence for longer than 400 ms.
+- **Decision: do not force finals.** Question detection uses the latest partial when
+  400 ms of silence is detected (about 400 ms after speech ends, versus about 1.1 s for
+  the engine's own finals). Engine finals stay as the record for display, history and
+  a retrieval re-run when they differ from the partial.
+- **Open question:** how often the partial at the moment of silence differs from the
+  final enough to change retrieval. Measure by saving the partial at each detected end
+  and comparing it with the final that later covers it.
+- The 300 ms variant (test 3) is expected to fragment more and is optional.
