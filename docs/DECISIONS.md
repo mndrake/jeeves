@@ -233,5 +233,9 @@ Seven answers reviewed against the six passages the spike sends:
 - Style drift to fix in M4 prompt tuning: sometimes two bolded phrases instead of one,
   one answer slightly over the 60-word cap, occasional adjacent facts that were not
   asked for (cache pricing in the Sonnet price answer).
+- `standard-adaptive` (adaptive thinking, low effort) gave essentially the same answers:
+  same facts, citations and "Not covered" notes, occasionally a slightly sharper gap
+  note ("Not covered: cache read price"). No quality gain to offset its slower tail
+  (p95 1,335 ms versus 843 ms), which confirms `between_tools` as the default.
 - Not yet tested: the "Not in your notes." path (the uncovered Rust question was tenth,
   beyond the default 8; now third) and Haiku 5.5 answer quality.
