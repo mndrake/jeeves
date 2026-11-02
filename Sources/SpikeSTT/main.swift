@@ -8,16 +8,25 @@
 // Live mode taps the browser and reports how far behind real time final results
 // arrive: the "audio to STT final segment" line of the latency budget (target 500 ms).
 // --vocab "Sonnet,Opus,Haiku,max_tokens" passes contextual strings to the analyzer.
+//
+// Finalize experiment (live mode): Jeeves detects the end of speech itself (audio above
+// --speech-db, then --silence-ms of quiet). Every run reports "speech end to final":
+// how long after the speaker stopped the final text arrived. With --finalize-on-silence
+// the spike also calls SpeechAnalyzer.finalize(through:) at each detected end, instead
+// of waiting for the engine's own decision. Compare a run with and without it:
+//   spike-stt --live --seconds 60
+//   spike-stt --live --seconds 60 --finalize-on-silence [--silence-ms 300]
 #if os(macOS)
 @preconcurrency import AVFoundation
 import AudioCapture
 import Foundation
 import JeevesCore
+import Synchronization
 import Transcription
 
-let flags = CommandLineFlags(switches: ["live", "help", "partials"])
+let flags = CommandLineFlags(switches: ["live", "help", "partials", "finalize-on-silence"])
 if flags.has("help") {
-    print("usage: spike-stt <file.wav> | --live --browser chrome [--strategy pids|system|bundle] [--seconds 120] [--mode fast|accurate] [--vocab a,b,c] [--partials]")
+    print("usage: spike-stt <file.wav> | --live --browser chrome [--strategy pids|system|bundle] [--seconds 120] [--mode fast|accurate] [--vocab a,b,c] [--partials] [--finalize-on-silence] [--silence-ms 400] [--speech-db -45]")
     exit(0)
 }
 
@@ -46,9 +55,37 @@ if flags.has("live") {
     let audioStart = MonotonicClock.now()
     let showPartials = flags.has("partials")
 
-    // Feed audio on its own task; collect results on this one.
+    let finalizeOnSilence = flags.has("finalize-on-silence")
+    let silenceMs = flags.double("silence-ms", default: 400)
+    let speechDB = Float(flags.double("speech-db", default: -45))
+    let sampleRate = session.audioFormat.sampleRate
+    let endpoints = EndpointLog()
+
+    // Feed audio and detect ends of speech on one task; read results on another.
     let feeder = Task.detached {
-        for await chunk in chunks { session.feed(chunk.buffer) }
+        var endpointer = SilenceEndpointer(speechThresholdDecibels: speechDB, silenceDuration: silenceMs / 1000)
+        var peak: Float = -160
+        var nextHeartbeat = 10.0
+        for await chunk in chunks {
+            session.feed(chunk.buffer)
+            peak = max(peak, chunk.rmsDecibels)
+            let duration = Double(chunk.buffer.frameLength) / sampleRate
+            if let end = endpointer.process(levelDecibels: chunk.rmsDecibels, duration: duration, capturedAt: chunk.capturedAt) {
+                endpoints.speechEnded(end)
+                if finalizeOnSilence {
+                    // A little past the last loud chunk so trailing phonemes are included.
+                    let through = end.audioTime + 0.05
+                    Task {
+                        do { try await session.finalize(throughSeconds: through) } catch { endpoints.finalizeFailed() }
+                    }
+                }
+            }
+            if endpointer.audioTime >= nextHeartbeat {
+                print(String(format: "  -- %3.0fs of audio, peak %.1f dB, %ld speech ends so far", endpointer.audioTime, peak, endpoints.detectedCount))
+                nextHeartbeat += 10
+                peak = -160
+            }
+        }
     }
 
     let reader = Task {
@@ -60,7 +97,9 @@ if flags.has("live") {
             let lag = MonotonicClock.milliseconds(from: audioStart, to: update.receivedAt) - update.audioEnd * 1000
             if update.isFinal {
                 finalLags.append(lag)
-                print(String(format: "[%7.2f-%7.2f] +%4.0f ms  %@", update.audioStart, update.audioEnd, lag, update.text))
+                let fromSpeechEnd = endpoints.finalArrived(audioEnd: update.audioEnd, at: update.receivedAt)
+                let note = fromSpeechEnd.map { String(format: "  (%.0f ms after speech ended)", $0) }.joined()
+                print(String(format: "[%7.2f-%7.2f] +%4.0f ms  %@%@", update.audioStart, update.audioEnd, lag, update.text, note))
             } else {
                 partialLags.append(lag)
                 if showPartials { print(String(format: "    partial +%4.0f ms  %@", lag, update.text)) }
@@ -74,12 +113,19 @@ if flags.has("live") {
     feeder.cancel()
     try await session.finish()
     let (finals, partials) = try await reader.value
+    let matcher = endpoints.snapshot
     print("""
 
-    live summary  mode=\(mode.rawValue) browser=\(browser.rawValue) strategy=\(strategy.rawValue)
-      final lag    \(LatencyStats(finals)?.summary ?? "no finals: was anyone talking?")
-      partial lag  \(LatencyStats(partials)?.summary ?? "-")
-      tap gaps     \(tap.stats.discontinuities)
+    live summary  mode=\(mode.rawValue) browser=\(browser.rawValue) strategy=\(strategy.rawValue) finalize-on-silence=\(finalizeOnSilence ? "on" : "off")
+      final lag           \(LatencyStats(finals)?.summary ?? "no finals: was anyone talking?")
+      partial lag         \(LatencyStats(partials)?.summary ?? "-")
+      speech end to final \(LatencyStats(matcher.latenciesMs)?.summary ?? "no matched speech ends")
+      speech ends         \(matcher.detected) detected (silence \(Int(silenceMs)) ms, speech above \(Int(speechDB)) dBFS); \(matcher.latenciesMs.count) matched, \(matcher.merged) merged into longer finals, \(matcher.unmatched) never finalized
+      finalize errors     \(endpoints.finalizeErrors)
+      tap gaps            \(tap.stats.discontinuities)
+
+    "speech end to final" includes the \(Int(silenceMs)) ms silence wait when finalize-on-silence is on.
+    Partial text is usable at the silence threshold itself, so compare against \(Int(silenceMs)) ms.
     """)
 } else {
     guard let path = flags.positional.first else {
@@ -109,6 +155,19 @@ if flags.has("live") {
       wall time    \(String(format: "%.1f", wall)) s  (real-time factor \(String(format: "%.3f", wall / max(audioSeconds, 0.001))); below 1 is faster than real time)
       first final  \(firstFinalMs.map { String(format: "%.0f ms", $0) } ?? "-")
     """)
+}
+/// Shared between the feeding task and the results task.
+final class EndpointLog: Sendable {
+    private let state = Mutex((matcher: FinalLatencyMatcher(), finalizeErrors: 0))
+
+    func speechEnded(_ end: SilenceEndpointer.EndOfSpeech) { state.withLock { $0.matcher.speechEnded(end) } }
+    func finalArrived(audioEnd: Double, at time: UInt64) -> [Double] {
+        state.withLock { $0.matcher.finalArrived(audioEnd: audioEnd, at: time) }
+    }
+    func finalizeFailed() { state.withLock { $0.finalizeErrors += 1 } }
+    var detectedCount: Int { state.withLock { $0.matcher.detected } }
+    var finalizeErrors: Int { state.withLock { $0.finalizeErrors } }
+    var snapshot: FinalLatencyMatcher { state.withLock { $0.matcher } }
 }
 #else
 print("spike-stt needs macOS 26 or later (SpeechAnalyzer).")

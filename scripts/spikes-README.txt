@@ -12,6 +12,7 @@ Jeeves M0 spike tools (Apple silicon, macOS 26 or later)
        ./spike-tap --list
        ./spike-tap --browser chrome --seconds 30          # default strategy: pids
        ./spike-stt --live --browser chrome --seconds 120
+       ./spike-stt --live --seconds 60 --finalize-on-silence   # finalize experiment
        ./spike-vec --chunks 10000
        ANTHROPIC_API_KEY=sk-ant-... ./spike-claude --out claude.json
 

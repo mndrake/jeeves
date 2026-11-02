@@ -59,7 +59,8 @@ public final class SpeechAnalyzerSession: @unchecked Sendable {
         let transcriber = SpeechTranscriber(locale: locale, transcriptionOptions: [], reportingOptions: reporting,
                                             attributeOptions: [.audioTimeRange])
 
-        if let installation = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
+        if await AssetInventory.status(forModules: [transcriber]) != .installed,
+           let installation = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
             log("downloading speech assets for \(locale.identifier)...")
             try await installation.downloadAndInstall()
         }
@@ -112,6 +113,14 @@ public final class SpeechAnalyzerSession: @unchecked Sendable {
     /// Queues audio for analysis. The buffer must be in `audioFormat`.
     public func feed(_ buffer: AVAudioPCMBuffer) {
         input.yield(AnalyzerInput(buffer: buffer))
+    }
+
+    /// Forces final results for all audio up to `seconds` of session audio time (nil:
+    /// everything consumed so far), instead of waiting for the engine's own end-of-
+    /// utterance decision. Waits until that audio has been consumed.
+    public func finalize(throughSeconds seconds: Double?) async throws {
+        let time = seconds.map { CMTime(seconds: $0, preferredTimescale: CMTimeScale(audioFormat.sampleRate.rounded())) }
+        try await analyzer.finalize(through: time)
     }
 
     /// Ends input, finalizes pending volatile results, and ends `updates`.
