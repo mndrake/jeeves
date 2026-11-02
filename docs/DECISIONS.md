@@ -194,3 +194,11 @@ cover the seven warm requests.
   plan's 2.0 s ceiling; passages appear at about 0.45 s.
 - Cost: about $0.003 per Sonnet answer, so a one-hour call with 40 questions is about
   $0.12, below the plan's $0.20 estimate.
+
+## 2026-11-02 - M0 search latency on the MacBook Air (spike-vec v0.0.3)
+
+10,000 synthetic chunks of 384 dimensions, 200 queries: hybrid search (BM25 + sqlite-vec,
+fused) 6.4 ms p50 and 8.2 ms p95; lexical 3.2 / 5.0 ms; vector 3.3 / 3.3 ms; inserts at
+26,815 chunks/s; 25.5 MB on disk. About 3.5 times faster than the Linux container, with
+sqlite-vec's NEON path. Retrieval uses under a tenth of its 100 ms budget, so exact
+(brute-force) vector search stays; no approximate index is needed at this corpus size.
