@@ -82,3 +82,29 @@ Pending: PLAN section 9 (six low-stakes defaults). Shoot-out results from M0-M4 
   helper launched later (new tab or call) is missed; re-scan and rebuild the tap when
   Core Audio's process list changes. Confirm with live transcription that `pids` does
   not drop speech that `system` hears.
+
+## 2026-11-02 - M0 live transcription results (MacBook Air, Chrome + Meet, v0.0.2)
+
+`spike-stt --live`, fast mode, `pids` capture, 60 seconds of speech from a second device:
+
+| Measurement | Result | Plan budget |
+|---|---|---|
+| Final result lag p50 / p95 (n=17) | 828 / 1,084 ms | 500 ms (p95 at most 600 ms) |
+| Partial result lag p50 / p95 (n=136) | 22 / 28 ms | none |
+| Tap gaps | 0 | 0 |
+| Analyzer startup | 130-461 ms | none |
+
+Transcripts were accurate on conversational speech, with occasional mishearings of
+names. The final-result lag is mostly SpeechAnalyzer waiting to be sure an utterance
+has ended before it finalizes.
+
+- **Do not wait for final results.** Question detection (PRD 03) runs on the latest
+  volatile result once our own level-based silence check sees about 400 ms of quiet.
+  Retrieval starts on that text; if the final differs, re-run retrieval (local, about
+  20 ms) and only update the panel if the passages change.
+- **Next experiment:** call `SpeechAnalyzer.finalize(through:)` at the detected end of
+  speech to force the final early, and measure it with `spike-stt`. Also run
+  `--mode accurate` and the file-mode word-error-rate test before keeping
+  SpeechAnalyzer over FluidAudio.
+- `spike-stt` prints "downloading speech assets" even when the assets are already
+  installed (startup was 130 ms). Cosmetic; fix with an `AssetInventory.status` check.

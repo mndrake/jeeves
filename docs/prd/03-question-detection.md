@@ -10,7 +10,7 @@ questions are often indirect ("walk me through how you'd handle...", "I'm curiou
 about your pricing").
 
 ## Goals
-- Detect questions and question-like requests directed at the user within 150 ms of the final transcript segment.
+- Detect questions and question-like requests directed at the user within 150 ms of the end of speech. Detection runs on the latest volatile (partial) transcript plus a silence check, not on final segments: M0 measured final-result lag at 828 ms p50 and 1,084 ms p95, but partials at 22 ms p50 (DECISIONS, 2026-11-02).
 - Precision >= 0.85, recall >= 0.9 on a labelled set of the user's calls.
 - Always offer a manual override: a global hotkey answers "the last thing said".
 
@@ -18,7 +18,7 @@ about your pricing").
 - Understanding multi-party politics (who is asked). With one remote channel and no mic, every remote question is treated as addressed to the user. Without a mic channel Jeeves cannot know when the user is speaking; the debounce and Assist mode compensate.
 
 ## Detection pipeline
-1. **Segment assembly.** Join final segments from the remote channel into utterances separated by >= 700 ms silence.
+1. **Segment assembly.** Track the latest volatile result. When the audio level stays below the speech threshold for about 400 ms, treat the utterance as ended and use the partial text (tunable). When the final result arrives, replace the text and re-run retrieval only if it changed.
 2. **Fast heuristics (sub-millisecond).** Fire if: trailing `?`; leading wh-word or auxiliary inversion ("can you", "do you", "what's your"); imperative request verbs ("tell me", "walk me through", "explain", "describe"); or rising-intonation flag if the STT engine exposes it. Suppress if: utterance < 3 words; identical question in the last 30 s; an answer for a near-identical query is already on screen.
 3. **Model check for ambiguous cases (<= 100 ms).** Utterances that score "maybe" go to a tiny classifier: Apple Foundation Models framework (on-device, free) with a constrained `@Generable` output `{ isQuestion: Bool, directedAtUser: Bool, topic: String }`. Fallback when Foundation Models is unavailable: Claude Haiku 5.5 (`thinking: disabled`, effort `low`, structured output, `max_tokens` 64), accepting a ~300 ms network hop; the user can disable the cloud fallback.
 4. **Context window.** On fire, package the question and the previous ~60 s of remote transcript for the retrieval stage.

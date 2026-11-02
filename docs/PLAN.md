@@ -164,7 +164,7 @@ Two clocks, both measured from the end of the spoken question:
 
 | Phase | Stage | Budget |
 |---|---|---|
-| 1: passages | Audio -> STT final segment | 500 ms |
+| 1: passages | End of speech -> usable transcript (latest partial after about 400 ms of silence; M0: finals lag 828 ms p50, partials 22 ms) | 450 ms |
 | | Question detection | 100 ms (heuristic path) / 150 ms (Foundation Models path) |
 | | Query embed + hybrid search + fusion | 100 ms |
 | | Render passages | 50 ms |
