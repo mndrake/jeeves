@@ -29,6 +29,13 @@ let package = Package(
         .executable(name: "spike-tap", targets: ["SpikeTap"]),
         .executable(name: "spike-stt", targets: ["SpikeSTT"]),
         .executable(name: "spike-capture", targets: ["SpikeCapture"]),
+        .executable(name: "spike-asr", targets: ["SpikeASR"]),
+    ],
+    dependencies: [
+        // Parakeet speech recognition on Apple silicon (M2 engine comparison). Pinned;
+        // `traits: []` builds speech recognition and VAD only, without TTS, diarization
+        // or the prebuilt text-normalization binary.
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.18.2", traits: []),
     ],
     targets: [
         // Vendored SQLite amalgamation + sqlite-vec (see Sources/CSQLite/VENDORED.md).
@@ -51,7 +58,10 @@ let package = Package(
         // macOS-only modules. Sources are wrapped in `#if os(macOS)` so the package
         // still builds (as empty modules) on Linux CI.
         .target(name: "AudioCapture", dependencies: ["JeevesCore"]),
-        .target(name: "Transcription", dependencies: ["JeevesCore", "AudioCapture"]),
+        .target(name: "Transcription", dependencies: [
+            "JeevesCore", "AudioCapture",
+            .product(name: "FluidAudio", package: "FluidAudio", condition: .when(platforms: [.macOS])),
+        ]),
 
         // M0 spikes. Each prints measurements to paste into docs/M0.md.
         .executableTarget(name: "SpikeClaude", dependencies: ["AnthropicAPI", "JeevesCore"]),
@@ -59,6 +69,7 @@ let package = Package(
         .executableTarget(name: "SpikeTap", dependencies: ["AudioCapture", "JeevesCore"]),
         .executableTarget(name: "SpikeSTT", dependencies: ["Transcription", "AudioCapture", "JeevesCore"]),
         .executableTarget(name: "SpikeCapture", dependencies: ["AudioCapture", "JeevesCore"]),
+        .executableTarget(name: "SpikeASR", dependencies: ["Transcription", "AudioCapture", "JeevesCore"]),
 
         .testTarget(name: "JeevesCoreTests", dependencies: ["JeevesCore"]),
         .testTarget(name: "AnthropicAPITests", dependencies: ["AnthropicAPI"]),

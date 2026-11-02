@@ -16,6 +16,12 @@
 // of waiting for the engine's own decision. Compare a run with and without it:
 //   spike-stt --live --seconds 60
 //   spike-stt --live --seconds 60 --finalize-on-silence [--silence-ms 300]
+//
+// M2: at each detected end of speech the spike prints the provisional text Jeeves would
+// act on (latest partial, aliases applied) and, when the final arrives, whether it
+// differed. --second-pass parakeet|parakeet-boost re-transcribes each utterance's audio
+// with Parakeet (--model v2|v3|ultra) and reports how long after the speaker stopped the
+// better text was ready.
 #if os(macOS)
 @preconcurrency import AVFoundation
 import AudioCapture
@@ -26,7 +32,7 @@ import Transcription
 
 let flags = CommandLineFlags(switches: ["live", "help", "partials", "finalize-on-silence"])
 if flags.has("help") {
-    print("usage: spike-stt <file.wav> | --live --browser chrome [--strategy pids|system|bundle] [--seconds 120] [--mode fast|accurate] [--vocab a,b,c] [--partials] [--finalize-on-silence] [--silence-ms 400] [--speech-db -45]")
+    print("usage: spike-stt <file.wav> | --live --browser chrome [--strategy pids|system|bundle] [--seconds 120] [--mode fast|accurate] [--vocab a,b,c] [--partials] [--finalize-on-silence] [--silence-ms 400] [--speech-db -45] [--second-pass parakeet|parakeet-boost] [--model v2|v3|ultra]")
     exit(0)
 }
 
@@ -50,6 +56,29 @@ if flags.has("live") {
         exit(2)
     }
     let seconds = flags.double("seconds", default: 120)
+    let aliases = AliasTable.anthropic
+
+    // Optional Parakeet second pass, loaded before capture starts so loading is not timed.
+    let secondPass: ParakeetTranscriber?
+    if let choice = flags.values["second-pass"] {
+        guard choice == "parakeet" || choice == "parakeet-boost",
+              let model = ParakeetModel(rawValue: flags.string("model", default: "v2")) else {
+            log("--second-pass takes parakeet or parakeet-boost; --model takes v2, v3 or ultra")
+            exit(2)
+        }
+        guard session.audioFormat.sampleRate == 16_000 else {
+            log("second pass needs 16 kHz audio; SpeechAnalyzer chose \(session.audioFormat.sampleRate) Hz")
+            exit(2)
+        }
+        log("loading Parakeet \(model.rawValue)\(choice == "parakeet-boost" ? " with vocabulary boosting" : "")...")
+        let boostTerms = choice == "parakeet-boost"
+            ? ParakeetTranscriber.vocabulary(terms: vocabulary, aliases: aliases) : []
+        secondPass = try await ParakeetTranscriber.load(model: model, vocabulary: boostTerms)
+    } else {
+        secondPass = nil
+    }
+    let ring = secondPass == nil ? nil : AudioRing(sampleRate: 16_000, capacitySeconds: 60)
+
     // Supervised capture: survives new browser processes and output-device changes,
     // and fills restart gaps with silence so result timestamps stay aligned.
     let capture = CaptureSession(browser: browser, strategy: strategy, outputFormat: session.audioFormat)
@@ -74,10 +103,27 @@ if flags.has("live") {
                 continue
             }
             session.feed(chunk.buffer)
+            ring?.append(chunk.buffer.floatSamples)
             peak = max(peak, chunk.rmsDecibels)
             let duration = Double(chunk.buffer.frameLength) / sampleRate
             if let end = endpointer.process(levelDecibels: chunk.rmsDecibels, duration: duration, capturedAt: chunk.capturedAt) {
-                endpoints.speechEnded(end)
+                let provisional = endpoints.speechEnded(end)
+                print("  >> at \(Int(silenceMs)) ms of silence: \(aliases.apply(to: provisional))")
+                if let secondPass, let ring {
+                    // The utterance with a little context either side.
+                    let clip = ring.clip(from: end.speechStart - 0.3, to: end.audioTime + 0.25)
+                    Task {
+                        do {
+                            let result = try await secondPass.transcribe(clip)
+                            let after = MonotonicClock.milliseconds(from: end.wallTime, to: MonotonicClock.now())
+                            endpoints.secondPassDone(latencyMs: after, processingMs: result.processingMs)
+                            print(String(format: "  >> second pass +%.0f ms after speech ended (%.0f ms to transcribe %.1f s): %@",
+                                         after, result.processingMs, result.audioSeconds, aliases.apply(to: result.bestText)))
+                        } catch {
+                            print("  >> second pass failed: \(error)")
+                        }
+                    }
+                }
                 if finalizeOnSilence {
                     // A little past the last loud chunk so trailing phonemes are included.
                     let through = end.audioTime + 0.05
@@ -101,6 +147,10 @@ if flags.has("live") {
             // How far behind the live audio this result is: wall time since the first
             // buffer, minus the audio time the result ends at.
             let lag = MonotonicClock.milliseconds(from: audioStart, to: update.receivedAt) - update.audioEnd * 1000
+            for comparison in endpoints.resultArrived(update) where !comparison.identical {
+                print(String(format: "  << final differs from the provisional text (%.0f%% WER): %@",
+                             comparison.wordErrorRate.rate * 100, comparison.final))
+            }
             if update.isFinal {
                 finalLags.append(lag)
                 let fromSpeechEnd = endpoints.finalArrived(audioEnd: update.audioEnd, at: update.receivedAt)
@@ -120,6 +170,10 @@ if flags.has("live") {
     try await session.finish()
     let (finals, partials) = try await reader.value
     let matcher = endpoints.snapshot
+    let comparisons = endpoints.comparisons
+    let identical = comparisons.filter(\.identical).count
+    let meanWER = comparisons.isEmpty ? 0 : comparisons.map(\.wordErrorRate.rate).reduce(0, +) / Double(comparisons.count)
+    let secondPassStats = endpoints.secondPassStats
     print("""
 
     live summary  mode=\(mode.rawValue) browser=\(browser.rawValue) strategy=\(strategy.rawValue) finalize-on-silence=\(finalizeOnSilence ? "on" : "off")
@@ -127,6 +181,8 @@ if flags.has("live") {
       partial lag         \(LatencyStats(partials)?.summary ?? "-")
       speech end to final \(LatencyStats(matcher.latenciesMs)?.summary ?? "no matched speech ends")
       speech ends         \(matcher.detected) detected (silence \(Int(silenceMs)) ms, speech above \(Int(speechDB)) dBFS); \(matcher.latenciesMs.count) matched, \(matcher.merged) merged into longer finals, \(matcher.unmatched) never finalized
+      partial vs final    \(comparisons.count) utterances compared, \(identical) identical (\(comparisons.isEmpty ? 0 : identical * 100 / comparisons.count)%), mean WER of provisional vs final \(String(format: "%.1f", meanWER * 100))%
+      second pass         \(secondPass == nil ? "off" : "after speech ended \(LatencyStats(secondPassStats.latencies)?.summary ?? "-"); transcribing \(LatencyStats(secondPassStats.processing)?.summary ?? "-")")
       finalize errors     \(endpoints.finalizeErrors)
       capture             \(capture.statistics.discontinuities) gaps, \(capture.statistics.restarts.count) restarts, \(String(format: "%.2f", capture.statistics.silenceFilledSeconds)) s silence filled
 
@@ -164,9 +220,29 @@ if flags.has("live") {
 }
 /// Shared between the feeding task and the results task.
 final class EndpointLog: Sendable {
-    private let state = Mutex((matcher: FinalLatencyMatcher(), finalizeErrors: 0))
+    private let state = Mutex((matcher: FinalLatencyMatcher(), finalizeErrors: 0, tracker: UtteranceTracker(),
+                               secondPassLatencies: [Double](), secondPassProcessing: [Double]()))
 
-    func speechEnded(_ end: SilenceEndpointer.EndOfSpeech) { state.withLock { $0.matcher.speechEnded(end) } }
+    /// Records an end of speech; returns the provisional text Jeeves would act on.
+    func speechEnded(_ end: SilenceEndpointer.EndOfSpeech) -> String {
+        state.withLock {
+            $0.matcher.speechEnded(end)
+            return $0.tracker.speechEnded(end)
+        }
+    }
+    func resultArrived(_ update: TranscriptUpdate) -> [UtteranceTracker.Comparison] {
+        state.withLock { $0.tracker.update(update) }
+    }
+    func secondPassDone(latencyMs: Double, processingMs: Double) {
+        state.withLock {
+            $0.secondPassLatencies.append(latencyMs)
+            $0.secondPassProcessing.append(processingMs)
+        }
+    }
+    var comparisons: [UtteranceTracker.Comparison] { state.withLock { $0.tracker.comparisons } }
+    var secondPassStats: (latencies: [Double], processing: [Double]) {
+        state.withLock { ($0.secondPassLatencies, $0.secondPassProcessing) }
+    }
     func finalArrived(audioEnd: Double, at time: UInt64) -> [Double] {
         state.withLock { $0.matcher.finalArrived(audioEnd: audioEnd, at: time) }
     }
@@ -174,6 +250,41 @@ final class EndpointLog: Sendable {
     var detectedCount: Int { state.withLock { $0.matcher.detected } }
     var finalizeErrors: Int { state.withLock { $0.finalizeErrors } }
     var snapshot: FinalLatencyMatcher { state.withLock { $0.matcher } }
+}
+
+/// The last `capacitySeconds` of fed audio, addressable by session audio time, so an
+/// utterance can be cut out and re-transcribed.
+final class AudioRing: Sendable {
+    let sampleRate: Double
+    let capacitySeconds: Double
+    private let state = Mutex((samples: [Float](), startSeconds: 0.0))
+
+    init(sampleRate: Double, capacitySeconds: Double) {
+        self.sampleRate = sampleRate
+        self.capacitySeconds = capacitySeconds
+    }
+
+    func append(_ samples: [Float]) {
+        let rate = sampleRate, capacity = Int(capacitySeconds * sampleRate)
+        state.withLock { ring in
+            ring.samples += samples
+            // Trim in large steps so appends stay cheap.
+            let excess = ring.samples.count - capacity
+            if excess > Int(10 * rate) {
+                ring.samples.removeFirst(excess)
+                ring.startSeconds += Double(excess) / rate
+            }
+        }
+    }
+
+    func clip(from start: Double, to end: Double) -> [Float] {
+        let rate = sampleRate
+        return state.withLock { ring in
+            let lower = max(0, Int(((start - ring.startSeconds) * rate).rounded()))
+            let upper = min(ring.samples.count, Int(((end - ring.startSeconds) * rate).rounded()))
+            return lower < upper ? Array(ring.samples[lower..<upper]) : []
+        }
+    }
 }
 #else
 print("spike-stt needs macOS 26 or later (SpeechAnalyzer).")

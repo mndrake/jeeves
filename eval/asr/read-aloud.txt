@@ -1,0 +1,24 @@
+Claude Code is Anthropic's agentic coding tool that runs in your terminal.
+Prompt caching lets you reuse a long system prompt across many requests.
+The cache lives for five minutes by default, and every read refreshes it.
+Claude Sonnet is the default model for most live answers.
+Claude Haiku is the fastest and cheapest model in the family.
+Use Claude Opus when a question needs deeper reasoning across several documents.
+The Model Context Protocol, or MCP, connects Claude to external tools and data.
+Keep your API key in the Keychain, never in a config file.
+The Batch API processes large jobs asynchronously at half the price.
+Extended thinking lets the model reason before it answers.
+Subagents in Claude Code can work on independent tasks in parallel.
+Auto mode lets Claude Code run safe commands without asking each time.
+A refusal comes back with a stop reason of refusal and a successful status code.
+Tool use lets Claude call functions that you define in your request.
+The context window holds the conversation, the documents and the system prompt.
+Managed Agents run the agent loop and the sandbox on Anthropic's infrastructure.
+In the Console you can create API keys and watch your usage.
+Claude Desktop and Claude Code can share the same MCP servers.
+If the stream returns an overloaded error, retry with backoff.
+Structured outputs make Claude return JSON that matches your schema.
+Compaction summarizes older turns when the context window fills up.
+Ask Claude Code to write the tests first, then implement the change.
+Sonnet with thinking turned off starts answering in well under a second.
+Haiku costs a fraction of Sonnet, so use it for simple lookups.

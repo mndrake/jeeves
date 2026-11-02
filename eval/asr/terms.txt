@@ -1,0 +1,24 @@
+Claude
+Claude Code
+Anthropic
+prompt caching
+Claude Sonnet
+Sonnet
+Claude Haiku
+Haiku
+Claude Opus
+Model Context Protocol
+MCP
+API key
+Batch API
+extended thinking
+subagents
+auto mode
+tool use
+context window
+Managed Agents
+Console
+Claude Desktop
+structured outputs
+compaction
+JSON
