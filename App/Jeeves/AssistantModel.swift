@@ -51,8 +51,9 @@ final class AssistantModel {
         mode = stored == .standardAdaptive ? .standard : (stored ?? .standard)
         autoAnswer = UserDefaults.standard.object(forKey: "autoAnswer") as? Bool ?? true
         // Read once at launch so the Keychain is not queried per question.
-        apiKey = KeychainStore.load() ?? ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"]
-        hasAPIKey = apiKey?.isEmpty == false
+        let key = KeychainStore.load() ?? ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"]
+        apiKey = key
+        hasAPIKey = key?.isEmpty == false
     }
 
     static let modes: [AnswerMode] = [.fast, .standard, .deep]
