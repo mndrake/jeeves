@@ -81,21 +81,23 @@ public struct FinalLatencyMatcher: Sendable {
         pending.append(end)
     }
 
-    /// Call for each final result. Returns the latencies (ms) of the ends it resolved.
+    /// Call for each final result. Returns the latency (ms) of the end it resolved, if any.
+    ///
+    /// Only the last end of speech a final covers gets a latency: earlier pauses inside
+    /// the same final were swallowed by the engine, and timing them from the final would
+    /// include the speech that followed them.
     @discardableResult
     public mutating func finalArrived(audioEnd: Double, at receivedAt: UInt64) -> [Double] {
-        var resolved: [Double] = []
-        pending.removeAll { end in
-            guard end.audioTime <= audioEnd + lateTolerance else { return false }  // speech not covered yet
-            if audioEnd - end.audioTime > mergeThreshold {
-                merged += 1
-            } else {
-                let latency = MonotonicClock.milliseconds(from: end.wallTime, to: receivedAt)
-                latenciesMs.append(latency)
-                resolved.append(latency)
-            }
-            return true
+        let covered = pending.filter { $0.audioTime <= audioEnd + lateTolerance }
+        guard let last = covered.max(by: { $0.audioTime < $1.audioTime }) else { return [] }
+        pending.removeAll { $0.audioTime <= audioEnd + lateTolerance }
+        merged += covered.count - 1
+        if audioEnd - last.audioTime > mergeThreshold {
+            merged += 1
+            return []
         }
-        return resolved
+        let latency = MonotonicClock.milliseconds(from: last.wallTime, to: receivedAt)
+        latenciesMs.append(latency)
+        return [latency]
     }
 }

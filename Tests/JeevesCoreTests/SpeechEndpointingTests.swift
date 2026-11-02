@@ -56,6 +56,15 @@ import Testing
         #expect(matcher.unmatched == 0 && matcher.latenciesMs == [650])
     }
 
+    @Test func onlyTheLastPauseInsideOneFinalIsTimed() {
+        // Seen on the Air: one final (7.86-14.52 s) covered pauses at about 13.0 and 14.4 s.
+        var matcher = FinalLatencyMatcher()
+        matcher.speechEnded(end(13.0, wallMs: 13_000))
+        matcher.speechEnded(end(14.4, wallMs: 14_400))
+        #expect(matcher.finalArrived(audioEnd: 14.52, at: 15_691_000_000) == [1_291])
+        #expect(matcher.latenciesMs == [1_291] && matcher.merged == 1 && matcher.unmatched == 0)
+    }
+
     @Test func finalsThatSwallowAPauseCountAsMerged() {
         var matcher = FinalLatencyMatcher(lateTolerance: 0.5, mergeThreshold: 1.5)
         matcher.speechEnded(end(5.0, wallMs: 5_000))
