@@ -1,4 +1,5 @@
 import AudioCapture
+@preconcurrency import AVFoundation
 import Foundation
 import JeevesCore
 import Observation

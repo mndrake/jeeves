@@ -196,13 +196,13 @@ Estimates assume one developer, mostly full time.
 - Shoot-out `SpeechAnalyzer` vs FluidAudio on 30 min of your recorded calls, with a read-aloud test of Anthropic/API terminology.
 - Exit: final-segment latency under 600 ms; domain-term accuracy acceptable.
 
-### M3 - Knowledge base (2-3 weeks) -> PRD 04, PRD 05 (retrieval)
+### M3 - Knowledge base (2-3 weeks) -> PRD 04, PRD 05 (retrieval) - first cut in v0.3.0 (lexical search, Markdown/llms.txt/folders); see `docs/M3-M4.md`
 - Markdown folder indexing; `llms.txt` site ingestion with `.md` pages; generic URL fallback; incremental refresh.
 - Ingest-time contextualization and synthetic questions via Haiku 5.5 Batches.
 - Embedding model shoot-out; hybrid search; debug search window.
 - Exit: your vault plus `platform.claude.com` and `code.claude.com` indexed; recall@3 >= 0.85 on a 60-question set; query under 100 ms.
 
-### M4 - Live loop (2-3 weeks) -> PRD 03, PRD 05 (generation), PRD 06
+### M4 - Live loop (2-3 weeks) -> PRD 03, PRD 05 (generation), PRD 06 - first cut in v0.3.0 (detection, answer panel, settings); see `docs/M3-M4.md`
 - Question detection; two-phase overlay; Claude client with streaming, prompt caching, refusal and error handling; model picker per task; hotkeys.
 - Exit: on a live call, passages under 1.0 s and first answer token under 2.0 s, measured over 50 questions. First genuinely useful build.
 
