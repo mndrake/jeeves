@@ -47,22 +47,38 @@ public struct AnswerPipeline: Sendable {
     /// would only produce "Not in your notes." anyway.
     public static let noPassagesText = "Not in your notes."
 
+    /// Words of the lead-in that go into the search query (the most recent ones).
+    public static let leadInSearchWords = 30
+
+    /// The local search query for a question and its lead-in: the lead-in's most
+    /// recent words, then the question. The lead-in usually names what the question is
+    /// about ("We run a support bot on Sonnet... How do we make that cheaper?"). On the
+    /// lead-in eval this lifts recall@3 from 0.31 to 0.58; searching the question alone
+    /// as well and fusing the two (to protect self-contained questions from unrelated
+    /// lead-ins) scored lower, 0.54 (docs/QUESTIONS.md).
+    public static func searchQuery(question: String, leadIn: String) -> String {
+        let words = leadIn.split(whereSeparator: \.isWhitespace)
+        let recent = words.suffix(leadInSearchWords).joined(separator: " ")
+        return recent.isEmpty ? question : recent + " " + question
+    }
+
     /// Streams the answer. Cancelling the consuming task cancels the HTTP request.
-    public func answer(question: String, transcript: String) -> AsyncStream<AnswerEvent> {
+    /// `leadIn` is what the speaker said just before asking, if anything.
+    public func answer(question: String, leadIn: String = "", transcript: String) -> AsyncStream<AnswerEvent> {
         AsyncStream { continuation in
             let task = Task {
-                await run(question: question, transcript: transcript) { continuation.yield($0) }
+                await run(question: question, leadIn: leadIn, transcript: transcript) { continuation.yield($0) }
                 continuation.finish()
             }
             continuation.onTermination = { _ in task.cancel() }
         }
     }
 
-    func run(question: String, transcript: String, emit: @Sendable (AnswerEvent) -> Void) async {
+    func run(question: String, leadIn: String = "", transcript: String, emit: @Sendable (AnswerEvent) -> Void) async {
         let started = MonotonicClock.now()
         let result: SearchResult
         do {
-            result = try await knowledge.search(question, limit: passageLimit)
+            result = try await knowledge.search(Self.searchQuery(question: question, leadIn: leadIn), limit: passageLimit)
         } catch {
             emit(.failed("Search failed: \(error)"))
             return
@@ -87,7 +103,8 @@ public struct AnswerPipeline: Sendable {
         let profile = AnswerProfile.forMode(mode)
         let userTurn = LiveAnswerPrompt.userTurn(
             passages: result.passages.map { (label: $0.breadcrumb, text: $0.text) },
-            transcript: transcript, question: AliasTable.anthropic.apply(to: question))
+            transcript: transcript, question: AliasTable.anthropic.apply(to: question),
+            leadIn: AliasTable.anthropic.apply(to: leadIn))
         let request = profile.makeRequest(system: [SystemBlock(text: LiveAnswerPrompt.system, cacheControl: .ephemeral)],
                                           messages: [.user(userTurn)])
 

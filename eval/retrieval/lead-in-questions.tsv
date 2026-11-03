@@ -1,0 +1,31 @@
+# Questions set up over several sentences, as question assembly passes them on:
+# lead-in<TAB>question<TAB>expected URL fragment(s), alternatives separated by |.
+# Most questions need the lead-in to make sense; the last eight have a lead-in that is
+# the tail of unrelated earlier talk, to measure how much a noisy lead-in hurts.
+# Run: spike-kb --db kb.sqlite --eval-lead-in this-file
+We have a support bot on Sonnet. Every request sends the same twenty thousand token system prompt.	Is there a way to make that cheaper?	build-with-claude/prompt-caching
+So we turned on prompt caching last week. But the hit rate looks really low in the usage numbers.	Why would that be?	build-with-claude/prompt-caching
+We run a nightly job that classifies about a million support tickets. Nobody needs the results until the morning.	What's the cheapest way to run that?	batch-processing
+Our agent streams answers to the browser. Sometimes the stream just stops halfway and the stop reason says refusal.	What should we do when that happens?	refusals-and-fallback|handle-streaming-refusals|handling-stop-reasons
+We send long contracts to the model. Some of them are scanned PDFs with tables.	Can it handle those directly?	pdf-support
+We want the model to return a JSON object that our parser can always read. Right now it sometimes adds extra text around it.	How do we stop that?	structured-outputs|strict-tool-use
+Our agent has about two thousand internal tools. Putting all of the definitions in every request blows up the context.	Is there a better way?	tool-search-tool
+The conversations in our agent run for hours. Eventually we hit the context limit and the session dies.	How do people deal with that?	build-with-claude/compaction|context-editing|context-windows
+We use cloud code across the whole engineering team. Security wants to block certain commands for everyone.	Where do we configure that?	managed-settings|settings|permissions|admin-setup
+I've been using cloud code in the terminal. But most of my team lives in VS code.	Does it work there too?	vs-code
+We want cloud code to run our formatter every time it edits a file. Without anyone having to ask for it.	How would we set that up?	hooks-guide|en/hooks
+We kick off cloud code from a cron job on a build server. There's no one at the keyboard to approve anything.	How do we run it like that?	headless|scheduled-tasks|github-actions
+We're on Opus four seven right now. Leadership wants us on the newest model by next quarter.	What do we have to change?	opus-5-5/migration-guide|migrating-to|whats-new
+Our users ask questions about current events. The model's training data is too old for that.	Can it look things up?	web-search-tool|web-fetch-tool
+Our latency budget for the first token is really tight. We're on Sonnet with a long prompt.	What are the main levers?	reduce-latency|prompt-caching|fast-mode
+We're in the EU and our lawyers care about where data is processed.	Can we pin the region?	data-residency
+We want the model to think harder on the difficult tickets. But not burn tokens on the easy ones.	Is there a setting for that?	build-with-claude/effort|adaptive-thinking|extended-thinking
+Our product reads screenshots that users upload. Mostly dashboards and error dialogs.	How do we send those to the model?	build-with-claude/vision
+And that's why we moved the whole team over to the new office last month.	How long does a cached prompt stay warm?	build-with-claude/prompt-caching
+Anyway the demo went fine in the end, everyone liked it.	How do I add an MCP server to cloud code?	en/mcp|mcp-quickstart
+Yeah we tried a couple of vendors before that and it was a mess honestly.	What are the rate limits on the API?	rate-limits
+So that was the plan for the launch. We'll see how it goes.	How do I resume a previous session in cloud code?	en/sessions|common-workflows
+Right, and the budget for that came out of a different team.	Can Claude call several tools at once?	parallel-tool-use
+The weather was terrible the whole week we were there.	What's the context window for opus five five?	models/opus-5-5|models/overview|context-windows
+Okay cool. Thanks for walking through all of that, it was really helpful.	How do I create a custom subagent?	sub-agents
+My manager keeps asking about the roadmap for next year.	What is the effort parameter?	build-with-claude/effort

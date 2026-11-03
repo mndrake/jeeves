@@ -1,4 +1,5 @@
 import AppKit
+import JeevesCore
 import SwiftUI
 
 /// Wires the models together: listening -> question detection -> assistant -> panel.
@@ -18,9 +19,11 @@ final class AppModel {
         listening = ListeningModel()
         panel = AnswerPanelController(assistant: assistant, listening: listening,
                                       openSettings: { [weak self] in self?.openSettingsWindow() })
-        listening.onQuestion = { [weak self] question in
+        listening.onQuestion = { [weak self] event in
             guard let self, self.assistant.autoAnswer else { return }
-            self.assistant.ask(question, trigger: .detected)
+            let question = event.question
+            self.assistant.ask(question.asked, leadIn: question.leadIn, trigger: .detected,
+                               questionID: question.id, revision: question.revision)
             self.panel.show()
         }
         assistant.recentTranscript = { [weak self] in self?.listening.recentTranscript() ?? "" }
@@ -40,7 +43,7 @@ struct JeevesApp: App {
         .menuBarExtraStyle(.window)
 
         Window("Jeeves Settings", id: "settings") {
-            SettingsView(assistant: app.assistant, knowledge: app.knowledge)
+            SettingsView(assistant: app.assistant, knowledge: app.knowledge, listening: app.listening)
         }
         .defaultLaunchBehavior(.suppressed)
         .windowResizability(.contentMinSize)

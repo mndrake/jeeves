@@ -31,6 +31,7 @@ let package = Package(
         .executable(name: "spike-capture", targets: ["SpikeCapture"]),
         .executable(name: "spike-asr", targets: ["SpikeASR"]),
         .executable(name: "spike-kb", targets: ["SpikeKB"]),
+        .executable(name: "spike-qa", targets: ["SpikeQA"]),
     ],
     dependencies: [
         // Parakeet speech recognition on Apple silicon (M2 engine comparison). Pinned;
@@ -74,6 +75,8 @@ let package = Package(
         .executableTarget(name: "SpikeCapture", dependencies: ["AudioCapture", "JeevesCore"]),
         .executableTarget(name: "SpikeASR", dependencies: ["Transcription", "AudioCapture", "JeevesCore"]),
         .executableTarget(name: "SpikeKB", dependencies: ["Assistant", "KnowledgeIndex", "AnthropicAPI", "JeevesCore"]),
+        // Question assembly calibration: replays call traces (docs/QUESTIONS.md). Cross-platform.
+        .executableTarget(name: "SpikeQA", dependencies: ["JeevesCore", "AnthropicAPI"]),
 
         .testTarget(name: "JeevesCoreTests", dependencies: ["JeevesCore"]),
         .testTarget(name: "AnthropicAPITests", dependencies: ["AnthropicAPI"]),

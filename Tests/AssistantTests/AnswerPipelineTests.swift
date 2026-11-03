@@ -46,4 +46,25 @@ import Testing
         #expect(events.contains { if case .retrying = $0 { true } else { false } })
         guard case .failed = events.last else { Issue.record("expected failure, got \(events)"); return }
     }
+
+    @Test func searchesTheLeadInWithTheQuestion() async throws {
+        let pipeline = AnswerPipeline(knowledge: try await knowledge(), client: nil, mode: .standard)
+        // "How long does that last?" alone matches nothing; the lead-in names the topic.
+        let alone = await collect(pipeline.answer(question: "How long does that last?", transcript: ""))
+        let withLeadIn = await collect(pipeline.answer(question: "How long does that last?",
+                                                       leadIn: "We cache our system prompts.", transcript: ""))
+        guard case .passages(let without) = alone.first, case .passages(let with) = withLeadIn.first else {
+            Issue.record("no passages events"); return
+        }
+        #expect(without.passages.isEmpty)
+        #expect(with.passages.first?.source == "notes/caching.md")
+    }
+
+    @Test func searchQueryKeepsTheMostRecentLeadInWords() {
+        let leadIn = (1...50).map { "w\($0)" }.joined(separator: " ")
+        let query = AnswerPipeline.searchQuery(question: "Why?", leadIn: leadIn)
+        #expect(query.hasPrefix("w21 "))
+        #expect(query.hasSuffix("w50 Why?"))
+        #expect(AnswerPipeline.searchQuery(question: "Why?", leadIn: "") == "Why?")
+    }
 }

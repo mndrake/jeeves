@@ -170,6 +170,9 @@ public struct UtteranceTracker: Sendable {
         public let provisional: String
         public let final: String
         public let wordErrorRate: WordErrorRate
+        /// The utterance's audio span (from its end of speech).
+        public var speechStart: Double = 0
+        public var audioEnd: Double = 0
         public var identical: Bool { wordErrorRate.errors == 0 }
     }
 
@@ -203,11 +206,13 @@ public struct UtteranceTracker: Sendable {
         let completed = covered.map { item -> Comparison in
             let finalText = text(from: item.end.speechStart, to: item.end.audioTime, includePartial: false)
             return Comparison(provisional: item.provisional, final: finalText,
-                              wordErrorRate: WordErrorRate(reference: finalText, hypothesis: item.provisional))
+                              wordErrorRate: WordErrorRate(reference: finalText, hypothesis: item.provisional),
+                              speechStart: item.end.speechStart, audioEnd: item.end.audioTime)
         }
         comparisons += completed
         // Keep memory bounded: finals far behind every pending end are no longer needed.
-        let horizon = (pending.map(\.end.speechStart).min() ?? result.audioEnd) - 30
+        // Generous, since an utterance still in progress may have started long ago.
+        let horizon = (pending.map(\.end.speechStart).min() ?? result.audioEnd) - 120
         finals.removeAll { $0.audioEnd < horizon }
         return completed
     }

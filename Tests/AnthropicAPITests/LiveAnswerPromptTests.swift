@@ -33,3 +33,13 @@ import Testing
         #expect(turn.contains("Recent transcript:\n(none)"))
     }
 }
+
+@Suite struct LiveAnswerLeadInTests {
+    @Test func leadInSitsBetweenTranscriptAndQuestion() {
+        let turn = LiveAnswerPrompt.userTurn(passages: [], transcript: "t", question: "How do we make that cheaper?",
+                                             leadIn: " We run a support bot on Sonnet. ")
+        #expect(turn.hasSuffix("Recent transcript:\nt\n\nLead-in: We run a support bot on Sonnet.\n\nQuestion: How do we make that cheaper?"))
+        #expect(!LiveAnswerPrompt.userTurn(passages: [], transcript: "t", question: "Q?").contains("Lead-in"))
+        #expect(LiveAnswerPrompt.system.contains("lead-in"))
+    }
+}

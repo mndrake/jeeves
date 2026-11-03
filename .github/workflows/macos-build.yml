@@ -4,7 +4,8 @@
 # Every push and pull request produces two downloadable artifacts on the run page:
 #   Jeeves-macOS-arm64.zip         the menu bar app
 #   jeeves-spikes-macOS-arm64.zip  spike-claude, spike-vec, spike-tap, spike-stt, spike-capture,
-#                                  spike-asr, spike-kb, and the asr/ and retrieval/ evaluation files
+#                                  spike-asr, spike-kb, spike-qa, and the asr/ and retrieval/
+#                                  evaluation files
 #
 # Publishing a GitHub release (same pattern as mndrake/polly), either:
 #   - Actions tab > macOS build > Run workflow > enter a version such as v0.0.1.
@@ -87,7 +88,7 @@ jobs:
           swift build -c release --arch arm64
           bin=$(swift build -c release --arch arm64 --show-bin-path)
           mkdir -p dist/jeeves-spikes
-          cp "$bin"/spike-claude "$bin"/spike-vec "$bin"/spike-tap "$bin"/spike-stt "$bin"/spike-capture "$bin"/spike-asr "$bin"/spike-kb dist/jeeves-spikes/
+          cp "$bin"/spike-claude "$bin"/spike-vec "$bin"/spike-tap "$bin"/spike-stt "$bin"/spike-capture "$bin"/spike-asr "$bin"/spike-kb "$bin"/spike-qa dist/jeeves-spikes/
           cp -R eval/asr dist/jeeves-spikes/asr
           cp -R eval/retrieval dist/jeeves-spikes/retrieval
           cp scripts/mock-anthropic.py dist/jeeves-spikes/

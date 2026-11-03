@@ -22,6 +22,11 @@
 // differed. --second-pass parakeet|parakeet-boost re-transcribes each utterance's audio
 // with Parakeet (--model v2|v3|ultra) and reports how long after the speaker stopped the
 // better text was ready.
+//
+// --trace call.jsonl (file or live mode) records a call trace for question-assembly
+// calibration with spike-qa (docs/QUESTIONS.md): audio levels and every transcript
+// result, no audio. On a recording this runs faster than real time:
+//   spike-stt interview.wav --trace interview.jsonl
 #if os(macOS)
 @preconcurrency import AVFoundation
 import AudioCapture
@@ -32,7 +37,7 @@ import Transcription
 
 let flags = CommandLineFlags(switches: ["live", "help", "partials", "finalize-on-silence"])
 if flags.has("help") {
-    print("usage: spike-stt <file.wav> | --live --browser chrome [--strategy pids|system|bundle] [--seconds 120] [--mode fast|accurate] [--vocab a,b,c] [--partials] [--finalize-on-silence] [--silence-ms 400] [--speech-db -45] [--second-pass parakeet|parakeet-boost] [--model v2|v3|ultra]")
+    print("usage: spike-stt <file.wav> | --live --browser chrome [--strategy pids|system|bundle] [--seconds 120] [--mode fast|accurate] [--vocab a,b,c] [--partials] [--finalize-on-silence] [--silence-ms 400] [--speech-db -45] [--second-pass parakeet|parakeet-boost] [--model v2|v3|ultra] [--trace call.jsonl]")
     exit(0)
 }
 
@@ -44,6 +49,19 @@ guard #available(macOS 26.0, *) else {
 let mode = TranscriberMode(rawValue: flags.string("mode", default: "fast")) ?? .fast
 let vocabulary = flags.values["vocab"].map { $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) } }
     ?? DomainVocabulary.anthropic
+
+/// A call trace writer for --trace, if given.
+func makeTrace(path: String?, source: String, name: String, engine: String) -> CallTraceWriter? {
+    guard let path else { return nil }
+    do {
+        return try CallTraceWriter(url: URL(fileURLWithPath: path),
+                                   header: .init(source: source, name: name, engine: engine,
+                                                 created: ISO8601DateFormatter().string(from: Date())))
+    } catch {
+        FileHandle.standardError.write(Data("cannot write trace \(path): \(error)\n".utf8))
+        exit(2)
+    }
+}
 
 let setupStart = MonotonicClock.now()
 let session = try await SpeechAnalyzerSession.start(mode: mode, contextualStrings: vocabulary)
@@ -91,6 +109,7 @@ if flags.has("live") {
     let speechDB = Float(flags.double("speech-db", default: -45))
     let sampleRate = session.audioFormat.sampleRate
     let endpoints = EndpointLog()
+    let trace = makeTrace(path: flags.values["trace"], source: "live", name: browser.rawValue, engine: "SpeechAnalyzer \(mode.rawValue)")
 
     // Feed audio and detect ends of speech on one task; read results on another.
     let feeder = Task.detached {
@@ -106,6 +125,7 @@ if flags.has("live") {
             ring?.append(chunk.buffer.floatSamples)
             peak = max(peak, chunk.rmsDecibels)
             let duration = Double(chunk.buffer.frameLength) / sampleRate
+            trace?.audio(levelDecibels: chunk.rmsDecibels, duration: duration)
             if let end = endpointer.process(levelDecibels: chunk.rmsDecibels, duration: duration, capturedAt: chunk.capturedAt) {
                 let provisional = endpoints.speechEnded(end)
                 print("  >> at \(Int(silenceMs)) ms of silence: \(aliases.apply(to: provisional))")
@@ -147,6 +167,7 @@ if flags.has("live") {
             // How far behind the live audio this result is: wall time since the first
             // buffer, minus the audio time the result ends at.
             let lag = MonotonicClock.milliseconds(from: audioStart, to: update.receivedAt) - update.audioEnd * 1000
+            trace?.update(update, at: MonotonicClock.milliseconds(from: audioStart, to: update.receivedAt) / 1000)
             for comparison in endpoints.resultArrived(update) where !comparison.identical {
                 print(String(format: "  << final differs from the provisional text (%.0f%% WER): %@",
                              comparison.wordErrorRate.rate * 100, comparison.final))
@@ -169,6 +190,7 @@ if flags.has("live") {
     feeder.cancel()
     try await session.finish()
     let (finals, partials) = try await reader.value
+    trace?.close()
     let matcher = endpoints.snapshot
     let comparisons = endpoints.comparisons
     let identical = comparisons.filter(\.identical).count
@@ -195,19 +217,29 @@ if flags.has("live") {
         exit(2)
     }
     let start = MonotonicClock.now()
+    let trace = makeTrace(path: flags.values["trace"], source: "file", name: URL(fileURLWithPath: path).lastPathComponent,
+                          engine: "SpeechAnalyzer \(mode.rawValue)")
     let reader = Task {
         var finals: [TranscriptUpdate] = []
         var firstFinalMs: Double?
-        for try await update in session.updates where update.isFinal {
+        for try await update in session.updates {
+            // A file is transcribed faster than real time, so record each result as
+            // available when its audio ends, as if it had been live with no lag.
+            trace?.update(update, at: update.audioEnd)
+            guard update.isFinal else { continue }
             if firstFinalMs == nil { firstFinalMs = MonotonicClock.millisecondsSince(start) }
             finals.append(update)
             print(String(format: "[%7.2f-%7.2f] %@", update.audioStart, update.audioEnd, update.text))
         }
         return (finals, firstFinalMs)
     }
-    let audioSeconds = try feedFile(URL(fileURLWithPath: path), to: session)
+    let audioSeconds = try feedFile(URL(fileURLWithPath: path), to: session) { buffer in
+        trace?.audio(levelDecibels: buffer.rmsDecibels, duration: Double(buffer.frameLength) / buffer.format.sampleRate)
+    }
     try await session.finish()
     let (finals, firstFinalMs) = try await reader.value
+    trace?.close()
+    if let trace { print("trace written to \(trace.url.path); replay it with spike-qa (docs/QUESTIONS.md)") }
     let wall = MonotonicClock.millisecondsSince(start) / 1000
     let words = finals.reduce(0) { $0 + $1.text.split(separator: " ").count }
     print("""

@@ -1,10 +1,12 @@
 import AppKit
+import JeevesCore
 import KnowledgeIndex
 import SwiftUI
 
 struct SettingsView: View {
     let assistant: AssistantModel
     let knowledge: KnowledgeModel
+    let listening: ListeningModel
 
     @State private var keyDraft = ""
     @State private var keyMessage: String?
@@ -41,6 +43,8 @@ struct SettingsView: View {
                 Toggle("Answer questions heard on the call automatically",
                        isOn: Binding(get: { assistant.autoAnswer }, set: { assistant.autoAnswer = $0 }))
             }
+
+            QuestionDetectionSection(listening: listening)
 
             Section("Knowledge sources") {
                 Text(knowledge.summary).font(.callout).foregroundStyle(.secondary)
@@ -159,5 +163,59 @@ struct SourceRow: View {
         guard let date = source.lastIndexed else { return "Not indexed" }
         let when = date.formatted(date: .abbreviated, time: .shortened)
         return "\(source.documentCount) documents, \(source.chunkCount) passages, indexed \(when)"
+    }
+}
+
+
+/// Question assembly settings. Defaults come from replaying recorded calls against
+/// hand-checked questions; record your own with "Save call traces" and tune them with
+/// spike-qa (docs/QUESTIONS.md).
+struct QuestionDetectionSection: View {
+    let listening: ListeningModel
+
+    var body: some View {
+        Section("Question detection") {
+            Stepper(value: Binding(get: { listening.silenceMs }, set: { listening.silenceMs = $0 }), in: 200...1500, step: 100) {
+                LabeledContent("Pause that ends a phrase", value: "\(Int(listening.silenceMs)) ms")
+            }
+            Text("Shorter answers sooner; longer waits for speakers who pause mid-question. Applies when listening next starts.")
+                .font(.caption).foregroundStyle(.secondary)
+            Stepper(value: setting(\.leadInGap), in: 0...5, step: 0.5) {
+                LabeledContent("Join phrases across pauses up to", value: String(format: "%.1f s", listening.assembly.leadInGap))
+            }
+            Stepper(value: setting(\.leadInSeconds), in: 0...60, step: 5) {
+                LabeledContent("Lead-in reaches back up to", value: String(format: "%.0f s", listening.assembly.leadInSeconds))
+            }
+            Text("The lead-in is what the speaker said before the question (\"We run a bot on Sonnet. The prompt is long. How do we make that cheaper?\"). It is searched with the question and sent to Claude. 0 s turns it off.")
+                .font(.caption).foregroundStyle(.secondary)
+            Stepper(value: setting(\.followUpWindow), in: 0...5, step: 0.5) {
+                LabeledContent("Answer again after a follow-up within",
+                               value: listening.assembly.followUpWindow == 0 ? "off" : String(format: "%.1f s", listening.assembly.followUpWindow))
+            }
+            Text("When the speaker keeps going after a question (\"...I mean for the batch API\"), the question is updated and answered again. A reply that starts like one (\"Yeah, great question...\") ends the question.")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Button("Restore defaults") {
+                    listening.assembly = QuestionAssembler.Settings()
+                    listening.silenceMs = 400
+                }
+                Spacer()
+            }
+            Toggle("Save call traces for calibration", isOn: Binding(get: { listening.saveTraces }, set: { listening.saveTraces = $0 }))
+            HStack {
+                Text("Records audio levels and the transcript (no audio) to Application Support/Jeeves/traces, for replaying with spike-qa.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Show traces") {
+                    try? FileManager.default.createDirectory(at: AppPaths.traces, withIntermediateDirectories: true)
+                    NSWorkspace.shared.open(AppPaths.traces)
+                }
+                .controlSize(.small)
+            }
+        }
+    }
+
+    private func setting(_ keyPath: WritableKeyPath<QuestionAssembler.Settings, Double>) -> Binding<Double> {
+        Binding(get: { listening.assembly[keyPath: keyPath] }, set: { listening.assembly[keyPath: keyPath] = $0 })
     }
 }

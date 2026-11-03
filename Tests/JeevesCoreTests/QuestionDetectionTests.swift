@@ -14,6 +14,9 @@ import Testing
         "I was wondering whether the batch API supports caching.",
         "Does Claude support PDFs natively",
         "We moved the system prompt. Why would it not be caching?",
+        "It's a neat trick and it's like what happens if you bring DuckDB into Postgres",
+        "Help me unpack that one. Why evil, give me more details on that",
+        "Is it cached or no?",
     ])
     func detectsQuestions(_ text: String) {
         #expect(detector.detect(text) != nil, "\(text)")
@@ -30,6 +33,10 @@ import Testing
         "Do it.",
         "Yeah.",
         "",
+        "It's great for local stuff, right?",
+        "OLTP databases are row based stores, right?",
+        "How do we convert geo types? So we have an extension that does that for us.",
+        "That's what happens when you skip the cache.",
     ])
     func ignoresStatementsAndLogistics(_ text: String) {
         #expect(detector.detect(text) == nil, "\(text)")

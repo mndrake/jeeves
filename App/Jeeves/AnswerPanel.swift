@@ -123,9 +123,11 @@ struct AnswerView: View {
                 .onSubmit(submit)
             Button("Ask", action: submit)
                 .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
-            Button("Answer last") { assistant.ask(listening.lastUtterance, trigger: .manual) }
-                .disabled(listening.lastUtterance.isEmpty)
-                .help(listening.lastUtterance.isEmpty ? "Nothing heard yet" : "Answer: \(listening.lastUtterance)")
+            Button("Answer last") {
+                if let turn = listening.lastTurn { assistant.ask(turn.utterance, leadIn: turn.leadIn, trigger: .manual) }
+            }
+            .disabled(listening.lastUtterance.isEmpty)
+            .help(listening.lastUtterance.isEmpty ? "Nothing heard yet" : "Answer: \(listening.lastUtterance)")
         }
         .controlSize(.small)
     }
@@ -168,10 +170,26 @@ struct ExchangeView: View {
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)
                     .background(Capsule().fill(exchange.trigger == .detected ? Color.blue.opacity(0.2) : Color.secondary.opacity(0.2)))
-                Text(exchange.question)
-                    .font(expanded ? .callout.weight(.medium) : .caption)
-                    .foregroundStyle(expanded ? Color.primary : Color.secondary)
-                    .textSelection(.enabled)
+                VStack(alignment: .leading, spacing: 2) {
+                    if !exchange.leadIn.isEmpty {
+                        Text(exchange.leadIn)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(expanded ? 3 : 1)
+                            .truncationMode(.head)
+                            .textSelection(.enabled)
+                    }
+                    Text(exchange.question)
+                        .font(expanded ? .callout.weight(.medium) : .caption)
+                        .foregroundStyle(expanded ? Color.primary : Color.secondary)
+                        .textSelection(.enabled)
+                }
+                if exchange.revision > 0 {
+                    Text("updated")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .help("The speaker added to the question, so it was answered again")
+                }
             }
 
             if expanded || !exchange.answer.isEmpty {

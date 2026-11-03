@@ -142,7 +142,10 @@ public final class SpeechAnalyzerSession: @unchecked Sendable {
 /// Reads an audio file and feeds it to a session as fast as the analyzer accepts it.
 /// Used for the offline shoot-out (word error rate, real-time factor).
 @available(macOS 26.0, *)
-public func feedFile(_ url: URL, to session: SpeechAnalyzerSession, chunkFrames: AVAudioFrameCount = 4_096) throws -> Double {
+/// `onChunk` sees each converted buffer as it is fed (spike-stt records its level for a
+/// call trace).
+public func feedFile(_ url: URL, to session: SpeechAnalyzerSession, chunkFrames: AVAudioFrameCount = 4_096,
+                     onChunk: ((AVAudioPCMBuffer) -> Void)? = nil) throws -> Double {
     let file = try AVAudioFile(forReading: url)
     let converter = try PCMConverter(from: file.processingFormat, to: session.audioFormat)
     guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: chunkFrames) else {
@@ -151,7 +154,10 @@ public func feedFile(_ url: URL, to session: SpeechAnalyzerSession, chunkFrames:
     while file.framePosition < file.length {
         try file.read(into: buffer, frameCount: chunkFrames)
         if buffer.frameLength == 0 { break }
-        if let converted = try converter.convert(buffer) { session.feed(converted) }
+        if let converted = try converter.convert(buffer) {
+            onChunk?(converted)
+            session.feed(converted)
+        }
     }
     return Double(file.length) / file.processingFormat.sampleRate
 }

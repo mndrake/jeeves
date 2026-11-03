@@ -16,31 +16,55 @@ public struct SilenceEndpointer: Sendable {
         public var detectedAt: UInt64
     }
 
+    /// Audio above this level is speech, whatever the noise floor.
     public var speechThresholdDecibels: Float
     /// How long the audio must stay below the threshold to count as the end of speech.
     public var silenceDuration: Double
     /// Shorter bursts (a click, a cough) are ignored.
     public var minimumSpeechDuration: Double
+    /// When set, speech must also be this far above the noise floor. Recordings with room
+    /// tone, a music bed or a noisy line never fall below a fixed -45 dBFS between
+    /// phrases, so a fixed threshold would see one endless utterance. nil: fixed only.
+    public var noiseMarginDecibels: Float?
 
     public private(set) var audioTime: Double = 0
+    /// Estimated noise floor: follows quiet audio down at once, rises slowly.
+    public private(set) var noiseFloorDecibels: Float = -90
     private var speechStart: Double?
     private var lastLoudEnd: Double = 0
     private var lastLoudWall: UInt64 = 0
 
-    public init(speechThresholdDecibels: Float = -45, silenceDuration: Double = 0.4, minimumSpeechDuration: Double = 0.15) {
+    /// How fast the noise floor may rise, in dB per second of audio.
+    static let floorRisePerSecond: Float = 0.5
+
+    public init(speechThresholdDecibels: Float = -45, silenceDuration: Double = 0.4, minimumSpeechDuration: Double = 0.15,
+                noiseMarginDecibels: Float? = 12) {
         self.speechThresholdDecibels = speechThresholdDecibels
         self.silenceDuration = silenceDuration
         self.minimumSpeechDuration = minimumSpeechDuration
+        self.noiseMarginDecibels = noiseMarginDecibels
     }
 
     public var isInSpeech: Bool { speechStart != nil }
+
+    /// The level audio must exceed to count as speech right now.
+    public var currentThresholdDecibels: Float {
+        guard let margin = noiseMarginDecibels else { return speechThresholdDecibels }
+        return max(speechThresholdDecibels, noiseFloorDecibels + margin)
+    }
 
     /// Feeds one chunk of audio, in order. Returns an end of speech at most once per
     /// utterance, when the silence after it reaches `silenceDuration`.
     public mutating func process(levelDecibels: Float, duration: Double, capturedAt: UInt64) -> EndOfSpeech? {
         let chunkStart = audioTime
         audioTime += duration
-        if levelDecibels > speechThresholdDecibels {
+        let threshold = currentThresholdDecibels
+        if levelDecibels < noiseFloorDecibels {
+            noiseFloorDecibels = max(levelDecibels, -90)
+        } else {
+            noiseFloorDecibels = min(levelDecibels, noiseFloorDecibels + Self.floorRisePerSecond * Float(duration))
+        }
+        if levelDecibels > threshold {
             if speechStart == nil { speechStart = chunkStart }
             lastLoudEnd = audioTime
             lastLoudWall = capturedAt

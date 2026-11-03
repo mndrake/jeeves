@@ -11,7 +11,12 @@ struct Exchange: Identifiable, Equatable {
 
     let id = UUID()
     let question: String
+    /// What the speaker said just before asking (question assembly), if anything.
+    var leadIn = ""
     let trigger: Trigger
+    /// The assembled question's ID, so a follow-up can revise this exchange.
+    var questionID: Int?
+    var revision = 0
     let askedAt = Date()
     var status: Status = .searching
     var passages: [Passage] = []
@@ -85,23 +90,28 @@ final class AssistantModel {
         hasAPIKey = false
     }
 
-    /// Answers a question, replacing any answer still streaming.
-    func ask(_ rawQuestion: String, trigger: Exchange.Trigger) {
+    /// Answers a question, replacing any answer still streaming. A revision (the
+    /// speaker added a follow-up) replaces the exchange it revises instead of archiving
+    /// it, and is dropped if a newer question took its place.
+    func ask(_ rawQuestion: String, leadIn rawLeadIn: String = "", trigger: Exchange.Trigger,
+             questionID: Int? = nil, revision: Int = 0) {
         let question = rawQuestion.trimmingCharacters(in: .whitespacesAndNewlines)
+        let leadIn = rawLeadIn.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !question.isEmpty, let base = knowledge.base else { return }
         // The same question detected twice (partial, then a repeat) is answered once.
-        if trigger == .detected, let current, current.question == question, current.isActive { return }
+        if trigger == .detected, let current, current.question == question, current.leadIn == leadIn, current.isActive { return }
+        if revision > 0, current?.questionID != questionID { return }
 
         task?.cancel()
-        if let current { archive(current) }
-        current = Exchange(question: question, trigger: trigger)
+        if let current, revision == 0 { archive(current) }
+        current = Exchange(question: question, leadIn: leadIn, trigger: trigger, questionID: questionID, revision: revision)
 
         let client = apiKey.map { AnthropicClient(configuration: AnthropicConfiguration(apiKey: $0)) }
         let pipeline = AnswerPipeline(knowledge: base, client: client, mode: mode)
         let transcript = recentTranscript()
         let id = current!.id
         task = Task {
-            for await event in pipeline.answer(question: question, transcript: transcript) {
+            for await event in pipeline.answer(question: question, leadIn: leadIn, transcript: transcript) {
                 guard !Task.isCancelled, self.current?.id == id else { return }
                 apply(event)
             }

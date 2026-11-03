@@ -115,6 +115,38 @@ if let evalPath = flags.values["eval"] {
     if let stats = LatencyStats(latencies) { print(String(format: "search p50 %.1f ms, p95 %.1f ms", stats.p50, stats.p95)) }
 }
 
+// Lead-in eval: TSV of `lead-in<TAB>question<TAB>expected`. Compares searching the
+// question alone with the query AnswerPipeline builds from lead-in and question.
+if let evalPath = flags.values["eval-lead-in"] {
+    guard let text = try? String(contentsOfFile: evalPath, encoding: .utf8) else { fail("cannot read \(evalPath)") }
+    let strategies: [(name: String, query: (String, String) -> String)] = [
+        ("question only", { _, question in question }),
+        ("pipeline query", { leadIn, question in AnswerPipeline.searchQuery(question: question, leadIn: leadIn) }),
+    ]
+    var hits = Array(repeating: [1: 0, 3: 0, 6: 0], count: strategies.count)
+    var n = 0
+    for line in text.split(separator: "\n") where !line.hasPrefix("#") {
+        let parts = line.split(separator: "\t").map(String.init)
+        guard parts.count >= 3 else { continue }
+        n += 1
+        var ranks: [String] = []
+        for (index, strategy) in strategies.enumerated() {
+            let result = try await knowledge.search(strategy.query(parts[0], parts[1]))
+            let rank = result.passages.firstIndex { passage in
+                parts[2].split(separator: "|").contains { passage.source.contains($0) }
+            }.map { $0 + 1 }
+            for k in [1, 3, 6] where (rank ?? 99) <= k { hits[index][k]! += 1 }
+            ranks.append(rank.map { "@\($0)" } ?? "--")
+        }
+        print("\(ranks.joined(separator: " "))  \(parts[1])")
+    }
+    guard n > 0 else { fail("no rows in \(evalPath)") }
+    for (index, strategy) in strategies.enumerated() {
+        print(String(format: "%-20@ recall@1 %.2f  @3 %.2f  @6 %.2f", strategy.name,
+                     Double(hits[index][1]!) / Double(n), Double(hits[index][3]!) / Double(n), Double(hits[index][6]!) / Double(n)))
+    }
+}
+
 if let question = flags.values["ask"] {
     var configuration = AnthropicConfiguration.fromEnvironment()
     if let base = flags.values["base-url"], let url = URL(string: base) {

@@ -38,5 +38,13 @@ Jeeves M0 spike tools (Apple silicon, macOS 26 or later)
        ./spike-kb --db kb.sqlite --eval retrieval/questions.tsv
        ANTHROPIC_API_KEY=sk-ant-... ./spike-kb --db kb.sqlite --ask "what does sonnet five five cost"
 
-6. mock-anthropic.py is a local fake of the Claude API:
+6. Question detection calibration (docs/QUESTIONS.md):
+
+       ./spike-stt interview.wav --trace interview.jsonl    # or Settings > Save call traces in the app
+       ANTHROPIC_API_KEY=sk-ant-... ./spike-qa label interview.jsonl   # drafts interview.labels.tsv; check it
+       ./spike-qa replay interview.jsonl --verbose          # what Jeeves would have asked, scored
+       ./spike-qa sweep *.jsonl                             # settings ranked against your labels
+       ./spike-kb --db kb.sqlite --eval-lead-in retrieval/lead-in-questions.tsv
+
+7. mock-anthropic.py is a local fake of the Claude API:
        python3 mock-anthropic.py &   then   ./spike-claude --base-url http://127.0.0.1:8765

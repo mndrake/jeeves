@@ -13,6 +13,8 @@ enum AppPaths {
 
     static var index: URL { directory.appendingPathComponent("index.sqlite") }
     static var sources: URL { directory.appendingPathComponent("sources.json") }
+    /// Call traces for spike-qa (docs/QUESTIONS.md), when "Save call traces" is on.
+    static var traces: URL { directory.appendingPathComponent("traces", isDirectory: true) }
 }
 
 /// The Anthropic API key, kept in the login Keychain (docs/prd/08).
