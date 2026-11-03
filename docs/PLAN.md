@@ -202,7 +202,7 @@ Estimates assume one developer, mostly full time.
 - Embedding model shoot-out; hybrid search; debug search window.
 - Exit: your vault plus `platform.claude.com` and `code.claude.com` indexed; recall@3 >= 0.85 on a 60-question set; query under 100 ms.
 
-### M4 - Live loop (2-3 weeks) -> PRD 03, PRD 05 (generation), PRD 06 - first cut in v0.3.0 (detection, answer panel, settings); see `docs/M3-M4.md`
+### M4 - Live loop (2-3 weeks) -> PRD 03, PRD 05 (generation), PRD 06 - first cut in v0.3.0 (detection, answer panel, settings); see `docs/M3-M4.md`; question assembly (lead-ins, follow-ups) and the calibration loop in v0.5.0, see `docs/QUESTIONS.md`
 - Question detection; two-phase overlay; Claude client with streaming, prompt caching, refusal and error handling; model picker per task; hotkeys.
 - Exit: on a live call, passages under 1.0 s and first answer token under 2.0 s, measured over 50 questions. First genuinely useful build.
 

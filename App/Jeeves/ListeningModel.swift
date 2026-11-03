@@ -58,6 +58,8 @@ final class ListeningModel {
     private var assembler = QuestionAssembler()
     private var trace: CallTraceWriter?
     private var audioStart: UInt64 = 0
+    /// Session audio time the current stretch of speech started, while someone talks.
+    private var speechStart: Double?
 
     init() {
         let stored = UserDefaults.standard.data(forKey: "questionAssembly")
@@ -100,6 +102,7 @@ final class ListeningModel {
         lastDetection = nil
         tracker = UtteranceTracker()
         assembler = QuestionAssembler(settings: assembly)
+        speechStart = nil
         runTask = Task { await run() }
     }
 
@@ -142,6 +145,7 @@ final class ListeningModel {
                 // Runs on the same chunks the speech engine gets, so its audio clock
                 // matches the transcript's timestamps.
                 var endpointer = SilenceEndpointer(silenceDuration: silence)
+                var speaking = false
                 for await event in events {
                     switch event {
                     case .audio(let chunk):
@@ -151,7 +155,12 @@ final class ListeningModel {
                         trace?.audio(levelDecibels: chunk.rmsDecibels, duration: duration)
                         if let end = endpointer.process(levelDecibels: chunk.rmsDecibels, duration: duration,
                                                         capturedAt: chunk.capturedAt) {
+                            speaking = false
                             await MainActor.run { self?.speechEnded(end) }
+                        }
+                        if !speaking, let start = endpointer.currentSpeechStart {
+                            speaking = true
+                            await MainActor.run { self?.speechStart = start }
                         }
                         if chunk.capturedAt &- lastLevel > 100_000_000 {
                             lastLevel = chunk.capturedAt
@@ -170,6 +179,11 @@ final class ListeningModel {
                 for comparison in tracker.update(update) {
                     handle(assembler.utteranceFinalized(.init(text: comparison.final, start: comparison.speechStart,
                                                               end: comparison.audioEnd)))
+                }
+                // A reply that starts with no pause ends the question mid-speech.
+                if let start = speechStart {
+                    let now = MonotonicClock.milliseconds(from: audioStart, to: update.receivedAt) / 1000
+                    handle(assembler.speechInProgress(.init(text: tracker.provisionalText(from: start), start: start, end: now)))
                 }
                 if update.isFinal {
                     finals.append(update.text)
@@ -199,6 +213,7 @@ extension ListeningModel {
     var lastTurn: (leadIn: String, utterance: String)? { assembler.lastTurn }
 
     fileprivate func speechEnded(_ end: SilenceEndpointer.EndOfSpeech) {
+        speechStart = nil
         let utterance = tracker.speechEnded(end)
         guard !utterance.isEmpty else { return }
         lastUtterance = utterance

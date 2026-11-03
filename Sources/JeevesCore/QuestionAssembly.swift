@@ -102,6 +102,9 @@ public struct QuestionAssembler: Sendable {
     /// Lead-ins never reach back before this time (the end of the last question).
     private var boundary = -Double.infinity
     private var nextID = 1
+    /// Start of the utterance a question was asked from mid-speech, so its end does not
+    /// ask it again.
+    private var askedDuringSpeech: Double?
 
     public init(settings: Settings = Settings(), detector: QuestionDetector = QuestionDetector()) {
         self.settings = settings
@@ -119,6 +122,13 @@ public struct QuestionAssembler: Sendable {
             history.removeAll { $0.end < horizon }
         }
 
+        if let started = askedDuringSpeech, abs(started - current.start) < 0.01 {
+            // Asked while this utterance was still going: the rest of it is the reply.
+            askedDuringSpeech = nil
+            boundary = current.end
+            return nil
+        }
+        askedDuringSpeech = nil
         if var question = open, settings.followUpWindow > 0, current.start - question.end <= settings.followUpWindow {
             if QuestionDetector.startsLikeReply(text) {
                 open = nil
@@ -128,6 +138,14 @@ public struct QuestionAssembler: Sendable {
             // The speaker carries on, and a reply may start mid-utterance: keep what
             // comes before it, then close.
             let (more, reply) = QuestionDetector.splitAtReply(text)
+            if reply == nil, detector.detect(more) != nil {
+                // A new question ("...and what about Opus?"): ask it as a question of its
+                // own, with the one it follows as part of its lead-in. Also keeps a false
+                // trigger from swallowing the real question that comes next.
+                open = nil
+                boundary = question.start - 0.001
+                return detectQuestion(in: current)
+            }
             let words = QuestionDetector.words(more)
             // Backchannel ("thanks", "okay") neither revises nor closes.
             if words.count < 3 && reply == nil { return nil }
@@ -145,7 +163,11 @@ public struct QuestionAssembler: Sendable {
             if reply != nil { return nil }
         }
         open = nil
+        return detectQuestion(in: current)
+    }
 
+    private mutating func detectQuestion(in current: Utterance) -> Event? {
+        let text = current.text
         // Detect over the whole turn so far, not just this utterance: a question often
         // runs across pauses ("can you maybe" / "just for the uninitiated" / "explain
         // what DuckDB does"), and no single piece of it reads as a question.
@@ -153,7 +175,11 @@ public struct QuestionAssembler: Sendable {
         let utteranceOnly = settings.leadInWords == 0
         var turn = utteranceOnly ? text : [context.text, text].filter { !$0.isEmpty }.joined(separator: " ")
         // A reply that began with no pause ends the question: look before it.
-        if !utteranceOnly, let beforeReply = detector.beforeReply(turn) { turn = beforeReply }
+        var replied = false
+        if !utteranceOnly, let beforeReply = detector.beforeReply(turn) {
+            turn = beforeReply
+            replied = true
+        }
         guard let detection = detector.detect(turn) else { return nil }
         let leadIn = utteranceOnly ? "" : Self.lastWords(detection.before, settings.leadInWords)
         // v0.4 (utterance only): the detector's own question text, nothing else.
@@ -162,7 +188,8 @@ public struct QuestionAssembler: Sendable {
         let question = Question(id: nextID, leadIn: leadIn, question: asked, followUp: "", reason: detection.reason,
                                 start: context.start ?? current.start, end: current.end, revision: 0)
         nextID += 1
-        open = question
+        // Once the reply has started, nothing more belongs to the question.
+        open = replied ? nil : question
         boundary = current.end
         return .asked(question)
     }
@@ -176,6 +203,32 @@ public struct QuestionAssembler: Sendable {
         earlier.boundary = -.infinity
         let context = earlier.leadIn(before: last).text
         return (Self.lastWords(context, max(settings.leadInWords, 40)), last.text)
+    }
+
+    /// Feed the provisional text of speech still in progress (from its start to now)
+    /// as the transcript grows. On videos and podcasts the reply often starts with no
+    /// pause, so the utterance runs on for many seconds after the question; when the
+    /// text shows a reply starting ("...have you tried that? Yeah, we did..."), this
+    /// asks right away instead of waiting for the next pause.
+    public mutating func speechInProgress(_ utterance: Utterance) -> Event? {
+        guard settings.leadInWords > 0, askedDuringSpeech == nil, boundary < utterance.start else { return nil }
+        let text = utterance.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        let context = leadIn(before: utterance)
+        let turn = [context.text, text].filter { !$0.isEmpty }.joined(separator: " ")
+        guard let beforeReply = detector.beforeReply(turn), let detection = detector.detect(beforeReply) else { return nil }
+        // Only a question that ends inside this utterance: earlier ones were handled
+        // when their own utterance ended.
+        guard QuestionDetector.words(beforeReply).count > QuestionDetector.words(context.text).count else { return nil }
+        let asked = [detection.sentence, detection.after].filter { !$0.isEmpty }.joined(separator: " ")
+        let question = Question(id: nextID, leadIn: Self.lastWords(detection.before, settings.leadInWords), question: asked,
+                                followUp: "", reason: detection.reason, start: context.start ?? utterance.start,
+                                end: utterance.end, revision: 0)
+        nextID += 1
+        open = nil
+        askedDuringSpeech = utterance.start
+        boundary = utterance.end
+        return .asked(question)
     }
 
     /// Feed the final transcript of an utterance when it arrives (after its end of

@@ -403,3 +403,40 @@ Decision:
 - For the transformer models, equal-weight RRF with BM25 does not improve recall@3 over
   vector search alone. If bge-small ships, either weight the vector list higher or let
   BM25 add only the exact matches that vector search misses.
+
+## 2026-11-03 - Question assembly and the calibration loop (v0.5.0)
+
+Reported problem: questions in videos often span several sentences, and the answer
+covered only the last one. Cause: each 400 ms pause ended an utterance, and detection,
+search and the prompt saw only that utterance.
+
+Decisions (details and how to re-run them: `docs/QUESTIONS.md`):
+
+- **Record and replay instead of guessing.** Call traces (audio levels plus every
+  transcript result with its arrival time, no audio) come from the app or from
+  `spike-stt --trace`. `spike-qa` replays a trace with any settings and scores the
+  questions against hand-checked labels.
+- **Calibration set:** five 15-minute interview podcast excerpts, transcribed with
+  faster-whisper small.en into traces with the real audio levels, and 28 labelled
+  questions. Replaying them found two problems as big as the lost context:
+  - 95 false triggers in 75 minutes, mostly tag questions and half-finished phrases.
+  - Missed questions that were split across pauses or followed by an instant reply.
+- **Detect over the turn, keep the lead-in.** Phrases are joined across pauses of up
+  to 1.2 s, reaching back at most 20 s and never into an earlier question. Follow-ups
+  within 2 s revise the question, and a reply opener ends it.
+- **Adaptive end of speech:** speech must also be 12 dB above the tracked noise floor.
+  One excerpt never dropped below -45 dBFS between phrases.
+- **Search the last 30 lead-in words with the question.** On 26 set-up questions,
+  recall@3 rose from 0.31 to 0.58. Fusing that with a question-only search scored
+  0.54, so it was dropped.
+- **Mid-speech asking:** the reply boundary is checked on every transcript update, so
+  a question is asked when the reply starts rather than when it next pauses.
+- **Results** on five excerpts (28 questions): v0.4 caught 64% of questions, 4%
+  complete, with coverage 0.19 and 95 false triggers. The v0.5 defaults catch 82%,
+  54% complete, with coverage 0.64 and 38 false triggers. On the excerpt labelled and
+  replayed only after all changes, v0.4 caught 100% but none complete (coverage 0.28,
+  25 false); v0.5 caught 80%, 40% complete (coverage 0.64, 10 false).
+- 300 ms phrase ends scored a little better (86%, 61% complete), but 400 ms stays until
+  there are traces from Apple's recogniser.
+- **Next:** speaker diarization, since most remaining misses are replies that start
+  with no pause and no reply opener. Also calibrate on the user's own video traces.

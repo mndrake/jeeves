@@ -16,6 +16,7 @@ Planning documents:
 - `docs/M1.md` - M1 capture resilience tests and results
 - `docs/M2.md` - M2 speech-engine comparison and live transcript tests
 - `docs/M3-M4.md` - Q&A build (v0.3.0, hybrid search v0.4.0): set-up, tests, results, what is not in it yet
+- `docs/QUESTIONS.md` - question detection (v0.5.0): lead-ins, follow-ups, and how to test and calibrate on your own recordings
 
 - `docs/PLAN.md` - vision, architecture, decisions, latency budget, milestones M0-M6, risks, open questions
 - `docs/prd/01-audio-capture.md` - browser audio via Core Audio process taps
@@ -41,7 +42,10 @@ Anthropic docs or your notes, and Jeeves detects questions on the call (or takes
 ones). It shows matching passages at once and streams a cited Claude answer in a
 floating panel hidden from screen sharing. **v0.4.0** adds hybrid search: keyword matches
 plus a small local embedding model, which lifts retrieval recall@3 from 0.79 to 0.88.
-Set-up and tests are in `docs/M3-M4.md`.
+Set-up and tests are in `docs/M3-M4.md`. **v0.5.0** keeps a question's set-up: questions
+asked over several sentences reach search and Claude whole, with far fewer false
+triggers. It also records call traces, which `spike-qa` replays and scores so the
+settings can be tuned on your own recordings (`docs/QUESTIONS.md`).
 
 ## Download
 

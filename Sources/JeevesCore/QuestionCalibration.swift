@@ -68,6 +68,7 @@ public struct TraceReplay: Sendable {
                     break
                 }
             }
+            var grew = false
             while nextUpdate < updates.count, updates[nextUpdate].at <= now {
                 let u = updates[nextUpdate]
                 let completed = tracker.update(TranscriptUpdate(text: u.text, isFinal: u.isFinal, audioStart: u.start, audioEnd: u.end, receivedAt: 0))
@@ -75,6 +76,10 @@ public struct TraceReplay: Sendable {
                     handle(assembler.utteranceFinalized(.init(text: comparison.final, start: comparison.speechStart, end: comparison.audioEnd)))
                 }
                 nextUpdate += 1
+                grew = true
+            }
+            if grew, let start = endpointer.currentSpeechStart {
+                handle(assembler.speechInProgress(.init(text: tracker.provisionalText(from: start), start: start, end: now)))
             }
             guard let end = endpointer.process(levelDecibels: level, duration: trace.step,
                                                capturedAt: UInt64(now * 1_000_000_000)) else { continue }

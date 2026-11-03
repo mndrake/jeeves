@@ -132,6 +132,38 @@ import Testing
         #expect(assembler.utteranceEnded(U(text: "And then we moved to verifiable rewards.", start: 7.5, end: 9)) == nil)
     }
 
+    @Test func aFollowUpQuestionIsAskedOnItsOwnWithTheFirstAsLeadIn() {
+        var assembler = QuestionAssembler()
+        _ = assembler.utteranceEnded(U(text: "How fast is Sonnet on long prompts?", start: 0, end: 2))
+        let event = assembler.utteranceEnded(U(text: "And what about Opus with thinking on?", start: 2.6, end: 4.5))
+        guard case .asked(let second) = event else { Issue.record("expected a new question, got \(String(describing: event))"); return }
+        #expect(second.question == "And what about Opus with thinking on?")
+        #expect(second.leadIn == "How fast is Sonnet on long prompts?")
+    }
+
+    @Test func aFirstPersonAnswerToAYouQuestionEndsIt() {
+        var assembler = QuestionAssembler()
+        let event = assembler.utteranceEnded(U(text: "Do you have numbers for Opus five five? We don't yet, that's coming.",
+                                               start: 0, end: 5))
+        #expect(event?.question.question == "Do you have numbers for Opus five five?")
+        // The answer has started: the next phrase is not a follow-up.
+        #expect(assembler.utteranceEnded(U(text: "We expect them in a couple of weeks.", start: 5.5, end: 8)) == nil)
+    }
+
+    @Test func asksMidSpeechWhenAReplyStartsWithNoPause() {
+        var assembler = QuestionAssembler()
+        #expect(assembler.speechInProgress(U(text: "So what model is best", start: 0, end: 2)) == nil)
+        let event = assembler.speechInProgress(U(text: "So what model is best for this? I think Sonnet five five, honestly",
+                                                 start: 0, end: 5))
+        #expect(event?.question.question == "So what model is best for this?")
+        #expect(assembler.speechInProgress(U(text: "So what model is best for this? I think Sonnet five five, honestly. It's fast",
+                                             start: 0, end: 6)) == nil)
+        // The utterance's end does not ask it again; the next utterance starts fresh.
+        #expect(assembler.utteranceEnded(U(text: "So what model is best for this? I think Sonnet five five, honestly. It's fast.",
+                                           start: 0, end: 12)) == nil)
+        #expect(assembler.utteranceEnded(U(text: "And how do you measure that?", start: 14, end: 16)) != nil)
+    }
+
     @Test func tagQuestionsDoNotTrigger() {
         var assembler = QuestionAssembler()
         #expect(assembler.utteranceEnded(U(text: "It's great for local stuff, right?", start: 0, end: 2)) == nil)

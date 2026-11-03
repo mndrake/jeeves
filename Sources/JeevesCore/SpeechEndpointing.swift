@@ -46,6 +46,8 @@ public struct SilenceEndpointer: Sendable {
     }
 
     public var isInSpeech: Bool { speechStart != nil }
+    /// Session audio time the current stretch of speech started, while in speech.
+    public var currentSpeechStart: Double? { speechStart }
 
     /// The level audio must exceed to count as speech right now.
     public var currentThresholdDecibels: Float {

@@ -225,6 +225,11 @@ public struct UtteranceTracker: Sendable {
         return provisional
     }
 
+    /// The provisional text of speech still in progress, from `start` on.
+    public func provisionalText(from start: Double) -> String {
+        text(from: start, to: .greatestFiniteMagnitude, includePartial: true)
+    }
+
     private func text(from start: Double, to end: Double, includePartial: Bool) -> String {
         var pieces = finals.filter { $0.audioEnd > start - 0.2 && $0.audioStart < end + tolerance }.map(\.text)
         if includePartial, let partial = latestPartial, partial.audioEnd > start - 0.2 { pieces.append(partial.text) }

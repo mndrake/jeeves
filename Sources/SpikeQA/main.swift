@@ -116,7 +116,8 @@ case "replay":
             for match in score.matches {
                 print("\n  label  \(clock(match.label.start))-\(clock(match.label.end))  \(match.label.text)")
                 if let asked = match.asked {
-                    print(String(format: "  asked  %@  coverage %.2f, extra %.2f%@", clock(asked.askedAt), match.coverage, match.extra,
+                    print(String(format: "  asked  %@  (%@) coverage %.2f, extra %.2f%@", clock(asked.askedAt),
+                                 asked.first.reason.rawValue, match.coverage, match.extra,
                                  asked.last.revision > 0 ? ", \(asked.last.revision) follow-up(s)" : ""))
                     if !asked.last.leadIn.isEmpty { print("         lead-in:  \(asked.last.leadIn)") }
                     print("         question: \(asked.last.asked)")
@@ -125,7 +126,9 @@ case "replay":
                 }
             }
             for asked in score.falseTriggers {
-                print("\n  FALSE  \(clock(asked.askedAt))  \(asked.last.text)")
+                print("\n  FALSE  \(clock(asked.askedAt))  (\(asked.first.reason.rawValue))")
+                if !asked.last.leadIn.isEmpty { print("         lead-in:  \(asked.last.leadIn)") }
+                print("         question: \(asked.last.asked)")
             }
         }
     }

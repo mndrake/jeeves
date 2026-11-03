@@ -69,6 +69,7 @@ public struct QuestionDetector: Sendable {
         "give me more details", "give me a sense", "elaborate on", "expand on", "talk me through", "can you maybe",
         "could you maybe", "what do you mean by", "i'd love to hear", "i would love to hear", "i'd love to know",
         "curious how", "curious what", "curious why", "curious about", "how would you", "what would you",
+        "i wanted to ask", "i want to ask", "wanted to ask you", "my question is", "quick question",
     ]
     /// Tags that turn a statement into a check rather than a question ("It's fast, right?").
     static let tags = [
@@ -110,7 +111,11 @@ public struct QuestionDetector: Sendable {
         "yeah", "yes", "yep", "no", "nope", "sure", "right", "exactly", "absolutely", "totally", "definitely",
         "great question", "good question", "that's a great", "that's a good", "thats a great", "so i think", "i think",
         "well", "honestly", "oh", "mhm", "uh huh", "i mean yeah", "it depends", "short answer", "so basically",
+        "let's see", "let me think", "hmm", "interesting", "that's interesting", "that's a really good", "so yes", "so yeah",
+        "good point",
     ]
+    static let secondPerson: Set<String> = ["you", "your", "you're", "you've", "you'd", "you'll", "yours"]
+    static let firstPerson: Set<String> = ["i", "we", "i'm", "we're", "i've", "we've", "i'd", "we'd", "i'll", "we'll", "our", "my"]
 
     /// True when the text opens the way a reply does.
     public static func startsLikeReply(_ text: String) -> Bool {
@@ -124,9 +129,17 @@ public struct QuestionDetector: Sendable {
     public func beforeReply(_ text: String) -> String? {
         let sentences = Self.sentences(text)
         guard sentences.count >= 2 else { return nil }
-        for index in (1..<sentences.count).reversed()
-        where sentences[index - 1].endsWithQuestionMark && Self.startsLikeReply(sentences[index].text) {
-            return sentences[..<index].map(\.text).joined(separator: " ")
+        for index in (1..<sentences.count).reversed() where sentences[index - 1].endsWithQuestionMark {
+            // The question may be set up in the sentence before ("You've tried a lot of
+            // models. Which is best?").
+            let question = Self.words(sentences[max(0, index - 2)..<index].map(\.text).joined(separator: " "))
+            let next = Self.words(sentences[index].text)
+            // "Do you have numbers on that? We don't yet." The question addressed the
+            // listener and the next sentence answers in the first person.
+            let answered = question.contains { Self.secondPerson.contains($0) } && next.first.map(Self.firstPerson.contains) == true
+            if Self.startsLikeReply(sentences[index].text) || answered {
+                return sentences[..<index].map(\.text).joined(separator: " ")
+            }
         }
         return nil
     }
